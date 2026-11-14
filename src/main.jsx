@@ -153,6 +153,7 @@ const navGroups = [
     items: [
       { id: "customersDashboard", label: "داشبورد ارتباط با مشتری" },
       { id: "customers", label: "مشتریان" },
+      { id: "debtors", label: "مشتریان بدهکار" },
       { id: "suppliers", label: "عرضه‌کنندگان" },
     ],
   },
@@ -183,6 +184,7 @@ const navigationIcons = {
   attendance: CalendarCheck2,
   customersDashboard: Activity,
   customers: Users,
+  debtors: Wallet,
   suppliers: ContactRound,
   settings: Settings,
 };
@@ -424,6 +426,7 @@ function App() {
     paid: 0,
     notes: "",
   });
+  const [paymentForm, setPaymentForm] = useState({ amount: "", date: today, notes: "" });
   const [journalItems, setJournalItems] = useState([
     { account: "", description: "", debit: 0, credit: 0 },
   ]);
@@ -486,6 +489,15 @@ function App() {
         s + (Number(i.quantity) * Number(i.price) - Number(i.discount || 0)),
       0,
     );
+    const initialPaid = Number(invoiceForm.paid || 0);
+    if (!Number.isFinite(initialPaid) || initialPaid < 0 || initialPaid > subtotal) {
+      notify("مبلغ پرداخت‌شده باید بین صفر و مجموع بل باشد.");
+      return;
+    }
+    if (modal.invoiceType === "sale" && subtotal > initialPaid && !invoiceForm.party) {
+      notify("برای فروش قرضه، مشتری را انتخاب کنید.");
+      return;
+    }
     const invoice = {
       id: Date.now(),
       number:
@@ -494,12 +506,56 @@ function App() {
       ...invoiceForm,
       items: invoiceItems.map((x) => ({ ...x })),
       total: subtotal,
-      balance: Math.max(0, subtotal - Number(invoiceForm.paid || 0)),
-      status: "ثبت‌شده",
+      paid: initialPaid,
+      balance: Math.max(0, Math.round((subtotal - initialPaid) * 100) / 100),
+      payments: [],
+      status: initialPaid >= subtotal ? "پرداخت کامل" : "پرداخت ناقص",
     };
     setData((prev) => ({ ...prev, invoices: [invoice, ...prev.invoices] }));
     setModal(null);
     notify("بل ثبت شد.");
+  }
+  function openPayment(invoice) {
+    if (invoice.type !== "sale" || Number(invoice.balance || 0) <= 0) return;
+    setPaymentForm({ amount: "", date: today, notes: "" });
+    setModal({ type: "payment", invoiceId: invoice.id });
+  }
+  function savePayment(e) {
+    e.preventDefault();
+    const amount = Number(paymentForm.amount);
+    const invoice = data.invoices.find((x) => x.id === modal.invoiceId && x.type === "sale");
+    if (!invoice) { notify("بل فروش پیدا نشد."); return; }
+    const remaining = Number(invoice.balance || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify("مبلغ دریافت‌شده باید بیشتر از صفر باشد.");
+      return;
+    }
+    if (Math.round(amount * 100) > Math.round(remaining * 100)) {
+      notify("مبلغ دریافت‌شده از مانده بل بیشتر است.");
+      return;
+    }
+    const payment = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      amount,
+      date: paymentForm.date || today,
+      notes: paymentForm.notes.trim(),
+    };
+    setData((prev) => ({
+      ...prev,
+      invoices: prev.invoices.map((item) => {
+        if (item.id !== invoice.id) return item;
+        const updatedBalance = Math.max(0, Math.round((Number(item.balance || 0) - amount) * 100) / 100);
+        return {
+          ...item,
+          paid: Math.round((Number(item.paid || 0) + amount) * 100) / 100,
+          balance: updatedBalance,
+          status: updatedBalance === 0 ? "پرداخت کامل" : "پرداخت ناقص",
+          payments: [...(item.payments || []), payment],
+        };
+      }),
+    }));
+    setModal(null);
+    notify("دریافت پول ثبت شد و مانده مشتری به‌روز گردید.");
   }
   function openJournal() {
     setForm({ name: "", date: today, notes: "" });
@@ -570,6 +626,8 @@ function App() {
           onInvoice={openInvoice}
         />
       );
+    if (page === "debtors")
+      return <DebtorsPage data={data} onPayment={openPayment} onNavigate={setCurrentPage} />;
     if (
       page === "products" ||
       page === "groups" ||
@@ -588,6 +646,7 @@ function App() {
           onAdd={() => openEntityForm(page)}
           onEdit={(r) => openEntityForm(page, r)}
           onDelete={(id) => deleteEntity(page, id)}
+          receivables={page === "customers" ? customerReceivables(data.invoices) : {}}
         />
       );
     }
@@ -614,6 +673,7 @@ function App() {
             }));
             notify("بل حذف شد.");
           }}
+          onPayment={openPayment}
         />
       );
     if (page === "journal")
@@ -864,6 +924,8 @@ function App() {
                 : entityConfigs[modal.key]?.add || "افزودن مورد"
               : modal.type === "invoice"
                 ? invoiceTitle(modal.invoiceType)
+                : modal.type === "payment"
+                  ? "ثبت دریافت پول از مشتری"
                 : modal.type === "journal"
                   ? "ثبت سند حسابداری"
                   : "ثبت مصارف"
@@ -888,6 +950,15 @@ function App() {
               items={invoiceItems}
               setItems={setInvoiceItems}
               onSubmit={saveInvoice}
+              onCancel={() => setModal(null)}
+            />
+          )}
+          {modal.type === "payment" && (
+            <PaymentForm
+              invoice={data.invoices.find((x) => x.id === modal.invoiceId)}
+              form={paymentForm}
+              setForm={setPaymentForm}
+              onSubmit={savePayment}
               onCancel={() => setModal(null)}
             />
           )}
@@ -1202,6 +1273,9 @@ function CustomersDashboard({ data, totals, onNavigate, onInvoice }) {
             >
               <Plus size={15} /> مشتری جدید
             </button>
+            <button className="btn secondary" onClick={() => onNavigate("debtors")}>
+              <Wallet size={15} /> مشتریان بدهکار
+            </button>
           </>
         }
       />
@@ -1227,7 +1301,7 @@ function CustomersDashboard({ data, totals, onNavigate, onInvoice }) {
         <StatCard
           label="مشتریان بدهکار"
           value={number(
-            data.customers.filter((x) => Number(x.balance || 0) > 0).length,
+            Object.values(customerReceivables(data.invoices)).filter((value) => value > 0).length,
           )}
           icon={Users}
           tone="violet"
@@ -1258,9 +1332,12 @@ function EntityPage({
   onAdd,
   onEdit,
   onDelete,
+  receivables = {},
 }) {
   const cfg = entityConfigs[page];
-  const rows = data[page] || [];
+  const rows = page === "customers"
+    ? (data[page] || []).map((row) => ({ ...row, balance: receivables[row.name] || 0 }))
+    : (data[page] || []);
   const filtered = rows.filter((row) =>
     JSON.stringify(row).toLowerCase().includes(search.toLowerCase()),
   );
@@ -1405,7 +1482,93 @@ function formatCell(value, key) {
     return number(value);
   return String(value);
 }
-function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete }) {
+// Outstanding customer debts are derived from sales invoice balances rather than a second balance store.
+function customerReceivables(invoices) {
+  return invoices.filter((invoice) => invoice.type === "sale" && Number(invoice.balance || 0) > 0)
+    .reduce((totals, invoice) => {
+      const name = invoice.party || "مشتری نامشخص";
+      totals[name] = (totals[name] || 0) + Number(invoice.balance || 0);
+      return totals;
+    }, {});
+}
+function DebtorsPage({ data, onPayment, onNavigate }) {
+  const [filter, setFilter] = useState("");
+  const outstanding = data.invoices
+    .filter((invoice) => invoice.type === "sale" && Number(invoice.balance || 0) > 0)
+    .filter((invoice) => `${invoice.party} ${invoice.number}`.toLowerCase().includes(filter.toLowerCase()))
+    .sort((a, b) => String(a.party || "").localeCompare(String(b.party || ""), "fa"));
+  const debtorTotals = customerReceivables(data.invoices);
+  const debtorsCount = Object.values(debtorTotals).filter((amount) => amount > 0).length;
+  return <>
+    <PageHeading
+      title="مشتریان بدهکار"
+      description="بل‌های پرداخت‌نشده و دریافت پول از مشتریان را مدیریت کنید"
+      actions={<button className="btn secondary" onClick={() => onNavigate("sales")}><Receipt size={15}/> رفتن به بل‌های فروش</button>}
+    />
+    <div className="stats-grid three">
+      <StatCard label="مجموع طلبات" value={money(Object.values(debtorTotals).reduce((a,b)=>a+b,0))} icon={Wallet} tone="rose"/>
+      <StatCard label="مشتریان بدهکار" value={number(debtorsCount)} icon={Users} tone="violet"/>
+      <StatCard label="بل‌های پرداخت‌نشده" value={number(data.invoices.filter((x)=>x.type === "sale" && Number(x.balance||0)>0).length)} icon={Receipt} tone="blue"/>
+    </div>
+    <div className="summary-strip">
+      <div className="strip-search"><Search size={16}/><input value={filter} onChange={(e)=>setFilter(e.target.value)} placeholder="نام مشتری یا شماره بل..." aria-label="جستجوی مشتری بدهکار"/></div>
+    </div>
+    <Panel title="فهرست بل‌های قرضه">
+      <div className="table-wrap mobile-card-table">
+        <table>
+          <thead><tr><th>مشتری</th><th>شماره بل</th><th>تاریخ</th><th>مجموع بل</th><th>پرداخت‌شده</th><th>مانده</th><th>عملیات</th></tr></thead>
+          <tbody>
+            {outstanding.map((invoice)=><tr key={invoice.id}>
+              <td data-label="مشتری">{invoice.party || "مشتری نامشخص"}</td>
+              <td data-label="شماره بل">#{number(invoice.number)}</td>
+              <td data-label="تاریخ">{invoice.date}</td>
+              <td data-label="مجموع بل">{money(invoice.total)}</td>
+              <td data-label="پرداخت‌شده">{money(invoice.paid)}</td>
+              <td data-label="مانده"><strong>{money(invoice.balance)}</strong></td>
+              <td data-label="عملیات" className="table-action-cell"><button className="btn primary pay-action" onClick={()=>onPayment(invoice)}><Wallet size={15}/> ثبت دریافت پول</button></td>
+            </tr>)}
+            {!outstanding.length && <tr className="empty-data-row"><td colSpan="7" className="empty-table-cell"><EmptyState text="در حال حاضر بل پرداخت‌نشده‌ای وجود ندارد."/></td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  </>;
+}
+function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
+  if (!invoice) return <p>بل مورد نظر پیدا نشد.</p>;
+  const amount = Number(form.amount || 0);
+  const remaining = Number(invoice.balance || 0);
+  const previous = Array.isArray(invoice.payments) ? invoice.payments : [];
+  return <form onSubmit={onSubmit} className="payment-form">
+    <div className="payment-summary-grid">
+      <div className="payment-summary-item"><span>مشتری</span><strong>{invoice.party || "مشتری نامشخص"}</strong></div>
+      <div className="payment-summary-item"><span>شماره بل</span><strong>#{number(invoice.number)}</strong></div>
+      <div className="payment-summary-item"><span>مجموع بل</span><strong>{money(invoice.total)}</strong></div>
+      <div className="payment-summary-item"><span>مانده فعلی</span><strong>{money(remaining)}</strong></div>
+    </div>
+    <div className="modal-grid">
+      <label>مبلغ دریافت‌شده (افغانی)
+        <input type="number" min="0.01" max={remaining} step="0.01" inputMode="decimal" autoFocus required value={form.amount} onChange={(e)=>setForm({...form,amount:e.target.value})} placeholder="مبلغ دریافتی" />
+      </label>
+      <label>تاریخ دریافت (هجری شمسی)
+        <input required value={form.date} onChange={(e)=>setForm({...form,date:e.target.value})}/>
+      </label>
+    </div>
+    <label className="full-label">توضیحات (اختیاری)
+      <textarea rows="2" value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="مثلاً دریافت نقدی از مشتری"/>
+    </label>
+    <div className="payment-result"><span>مانده بعد از دریافت</span><strong>{money(Math.max(0,remaining-(Number.isFinite(amount)?amount:0)))}</strong></div>
+    {previous.length > 0 && <div className="payment-history">
+      <strong>سوابق دریافت پول</strong>
+      {previous.map((payment)=><div key={payment.id} className="payment-history-row"><span>{payment.date} {payment.notes ? `— ${payment.notes}` : ""}</span><strong>{money(payment.amount)}</strong></div>)}
+    </div>}
+    <div className="modal-actions">
+      <button type="button" className="btn secondary" onClick={onCancel}>لغو</button>
+      <button className="btn primary" type="submit"><Wallet size={16}/> ثبت دریافت پول</button>
+    </div>
+  </form>;
+}
+function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPayment }) {
   const type =
     page === "sales" ? "sale" : page === "purchases" ? "purchase" : "return";
   const title =
@@ -1507,6 +1670,11 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete }) {
                   </td>
                   <td data-label="عملیات" className="table-action-cell">
                     <div className="row-actions">
+                      {type === "sale" && Number(row.balance || 0) > 0 && (
+                        <button className="btn primary pay-action" onClick={() => onPayment(row)}>
+                          <Wallet size={15} /> ثبت دریافت پول
+                        </button>
+                      )}
                       <button
                         className="icon-btn small"
                         onClick={() => window.print()}

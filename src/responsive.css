@@ -353,3 +353,18 @@ td { font-size: 13px; }
   .sidebar-period small, .sidebar-user small { font-size: 11px; }
   .sidebar-close { min-height: 44px; min-width: 44px; width: 44px; height: 44px; }
 }
+
+/* Customer-credit collection workflow */
+.pay-action{white-space:nowrap;display:inline-flex;gap:7px;align-items:center;justify-content:center}
+.payment-form{display:flex;flex-direction:column;gap:19px}
+.payment-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.payment-summary-item{border:1px solid #e5e5ef;background:#f8f8fb;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.payment-summary-item span{color:#6b6b75;font-size:12px}
+.payment-summary-item strong{font-size:15px;overflow-wrap:anywhere}
+.payment-result{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#eff9f2;border:1px solid #d2ebd7;padding:14px 17px;border-radius:13px}
+.payment-result span{color:#475d4c}
+.payment-result strong{color:#146a34}
+.payment-history{border-top:1px solid #e5e5ef;padding-top:12px;display:flex;flex-direction:column;gap:10px}
+.payment-history-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;background:#f8f8fb;border-radius:10px;flex-wrap:wrap}
+@media(max-width:700px){.payment-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.payment-form .modal-grid{grid-template-columns:1fr}.payment-form input,.payment-form textarea{font-size:16px;min-height:48px}.pay-action{width:100%;min-height:44px}.payment-result{align-items:flex-start;flex-direction:column}}
+@media(max-width:360px){.payment-summary-grid{grid-template-columns:1fr}}

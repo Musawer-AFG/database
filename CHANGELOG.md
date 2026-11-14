@@ -24,3 +24,10 @@
 - Improved responsive column layouts at tablet/small-desktop widths (761–1100px).
 - Kept the 30-day attendance view horizontally scrollable with a visible instruction and accessible focus region.
 - Maintained the right-side menu, Afghan Dari, RTL, AFN and previously removed modules.
+
+## Customer debt collection
+- Added **مشتریان بدهکار** under مشتریان. Shows open sales bills and total receivables derived from invoice balances.
+- Added **ثبت دریافت پول** on unpaid sales invoices and the debtor list. Partial/full payments update the original bill, paid amount and outstanding balance.
+- Payment date, notes and payment history are stored with each invoice in browser localStorage.
+- Settled invoices automatically leave the debtor list. If a customer has other unpaid sales bills, they remain listed.
+- Frontend-only demo: there is no shared database, authentication, accounting ledger, or multi-device synchronization.

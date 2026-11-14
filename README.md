@@ -56,3 +56,12 @@ This is **still a React-only demo**. It stores sample data in browser `localStor
 The React JSX was syntax-checked. The responsive CSS was inspected in Chromium using representative UI markup across viewport widths from 320 to 1440px, and no page-level horizontal overflow was found in those layout checks. A complete Vite build and end-to-end verification of every page could not be performed because dependencies were not available for installation in the current environment.
 
 Do not enter real financial or personal data until a proper backend, authentication, authorization and backups are implemented.
+
+## Customer credit payments (frontend demo)
+1. Create a customer in **مشتریان**.
+2. Create a sale in **بل‌های فروش** and select that customer. Enter the initially paid amount, which can be 0.
+3. Open **مشتریان → مشتریان بدهکار** to see sales invoices with outstanding balances.
+4. Press **ثبت دریافت پول**, enter a positive amount not exceeding the balance, then save.
+5. The balance is reduced, the payment is recorded in invoice history, and the entry disappears from the debtors list when fully paid.
+
+All demo data is stored in this browser's localStorage. Do not use for real client accounting or rely on it as a reliable financial record.
