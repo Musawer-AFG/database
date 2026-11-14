@@ -60,6 +60,7 @@ import {
   CalendarCheck2,
 } from "lucide-react";
 import "./styles.css";
+import "./responsive.css";
 
 const afghanMonths = [
   "حمل",
@@ -820,6 +821,18 @@ function App() {
             </button>
           </div>
         </header>
+        <div className="mobile-search-bar">
+          <label className="mobile-search-input">
+            <Search size={18} aria-hidden="true" />
+            <span className="sr-only">جستجو در این صفحه</span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="جستجو در این صفحه..."
+              aria-label="جستجو در این صفحه"
+            />
+          </label>
+        </div>
         <main className="main-area">
           <div className="page-toolbar">
             <div>
@@ -1320,7 +1333,7 @@ function EntityPage({
 }
 function DataTable({ columns, rows, onEdit, onDelete, empty }) {
   return (
-    <div className="table-wrap">
+    <div className="table-wrap mobile-card-table">
       <table>
         <thead>
           <tr>
@@ -1334,10 +1347,10 @@ function DataTable({ columns, rows, onEdit, onDelete, empty }) {
           {rows.map((row) => (
             <tr key={row.id}>
               {columns.map(([key]) => (
-                <td key={key}>{formatCell(row[key], key)}</td>
+                <td key={key} data-label={columns.find(([columnKey]) => columnKey === key)?.[1]}>{formatCell(row[key], key)}</td>
               ))}
               {(onEdit || onDelete) && (
-                <td>
+                <td data-label="عملیات" className="table-action-cell">
                   <div className="row-actions">
                     {onEdit && (
                       <button
@@ -1363,8 +1376,8 @@ function DataTable({ columns, rows, onEdit, onDelete, empty }) {
             </tr>
           ))}
           {!rows.length && (
-            <tr>
-              <td colSpan={columns.length + 1}>
+            <tr className="empty-data-row">
+              <td className="empty-table-cell" colSpan={columns.length + 1}>
                 <EmptyState text={empty} />
               </td>
             </tr>
@@ -1464,7 +1477,7 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete }) {
         <span className="muted-pill">{number(rows.length)} ریکارد</span>
       </div>
       <Panel title={`فهرست ${title}`}>
-        <div className="table-wrap">
+        <div className="table-wrap mobile-card-table">
           <table>
             <thead>
               <tr>
@@ -1481,18 +1494,18 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete }) {
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <td>#{number(row.number)}</td>
-                  <td>{row.date}</td>
-                  <td>{row.party || "—"}</td>
-                  <td>{number(row.items?.length || 0)}</td>
-                  <td>{number(row.total)}</td>
-                  <td>{number(row.balance)}</td>
-                  <td>
+                  <td data-label="شماره بل">#{number(row.number)}</td>
+                  <td data-label="تاریخ">{row.date}</td>
+                  <td data-label={type === "purchase" ? "عرضه‌کننده" : "مشتری"}>{row.party || "—"}</td>
+                  <td data-label="تعداد اقلام">{number(row.items?.length || 0)}</td>
+                  <td data-label="مبلغ (افغانی)">{number(row.total)}</td>
+                  <td data-label="مانده">{number(row.balance)}</td>
+                  <td data-label="وضعیت">
                     <span className="status success">
                       {row.status || "ثبت‌شده"}
                     </span>
                   </td>
-                  <td>
+                  <td data-label="عملیات" className="table-action-cell">
                     <div className="row-actions">
                       <button
                         className="icon-btn small"
@@ -1513,8 +1526,8 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete }) {
                 </tr>
               ))}
               {!rows.length && (
-                <tr>
-                  <td colSpan="8">
+                <tr className="empty-data-row">
+                  <td colSpan="8" className="empty-table-cell">
                     <EmptyState text="بلی ثبت نشده است." />
                   </td>
                 </tr>
@@ -1808,7 +1821,9 @@ function AttendancePage({ data }) {
           <span className="off">رخصتی</span>
         </div>
         {data.employees.length ? (
-          <div className="table-wrap">
+          <>
+          <div className="table-scroll-hint" aria-hidden="true">برای دیدن روزهای دیگر، جدول را به چپ یا راست بکشید.</div>
+          <div className="table-wrap wide-data-table" role="region" aria-label="جدول حاضری قابل حرکت افقی" tabIndex="0">
             <table>
               <thead>
                 <tr>
@@ -1834,6 +1849,7 @@ function AttendancePage({ data }) {
               </tbody>
             </table>
           </div>
+          </>
         ) : (
           <EmptyState text="برای نمایش حاضری، ابتدا کارمندان را ثبت کنید." />
         )}
@@ -2079,7 +2095,7 @@ function InvoiceForm({
           <strong>اقلام بل</strong>
           <span>مالیات در بل فروش نمایش داده نمی‌شود.</span>
         </div>
-        <div className="table-wrap">
+        <div className="table-wrap responsive-entry-lines">
           <table>
             <thead>
               <tr>
@@ -2094,8 +2110,9 @@ function InvoiceForm({
             <tbody>
               {items.map((item, index) => (
                 <tr key={index}>
-                  <td>
+                  <td data-label="محصول / خدمات" className="entry-product">
                     <input
+                      aria-label={`محصول / خدمات، قلم ${index + 1}`}
                       value={item.product}
                       onChange={(e) => update(index, "product", e.target.value)}
                       placeholder="نام محصول"
@@ -2107,8 +2124,9 @@ function InvoiceForm({
                       ))}
                     </datalist>
                   </td>
-                  <td>
+                  <td data-label="تعداد">
                     <input
+                      aria-label={`تعداد، قلم ${index + 1}`}
                       type="number"
                       min="0"
                       value={item.quantity}
@@ -2117,16 +2135,18 @@ function InvoiceForm({
                       }
                     />
                   </td>
-                  <td>
+                  <td data-label="قیمت واحد">
                     <input
+                      aria-label={`قیمت واحد، قلم ${index + 1}`}
                       type="number"
                       min="0"
                       value={item.price}
                       onChange={(e) => update(index, "price", e.target.value)}
                     />
                   </td>
-                  <td>
+                  <td data-label="تخفیف">
                     <input
+                      aria-label={`تخفیف، قلم ${index + 1}`}
                       type="number"
                       min="0"
                       value={item.discount}
@@ -2135,14 +2155,15 @@ function InvoiceForm({
                       }
                     />
                   </td>
-                  <td>
+                  <td data-label="مجموع" className="entry-total">
                     {number(
                       Number(item.quantity || 0) * Number(item.price || 0) -
                         Number(item.discount || 0),
                     )}
                   </td>
-                  <td>
+                  <td data-label="حذف قلم" className="entry-remove">
                     <button
+                      aria-label={`حذف قلم ${index + 1}`}
                       type="button"
                       className="icon-btn small danger"
                       onClick={() =>
@@ -2226,7 +2247,7 @@ function JournalForm({ form, setForm, items, setItems, onSubmit, onCancel }) {
             <Plus size={14} /> افزودن تراکنش
           </button>
         </div>
-        <div className="table-wrap">
+        <div className="table-wrap responsive-entry-lines">
           <table>
             <thead>
               <tr>
@@ -2240,37 +2261,42 @@ function JournalForm({ form, setForm, items, setItems, onSubmit, onCancel }) {
             <tbody>
               {items.map((item, i) => (
                 <tr key={i}>
-                  <td>
+                  <td data-label="عنوان سرفصل">
                     <input
+                      aria-label={`عنوان سرفصل، تراکنش ${i + 1}`}
                       value={item.account}
                       onChange={(e) => update(i, "account", e.target.value)}
                       placeholder="نام سرفصل"
                     />
                   </td>
-                  <td>
+                  <td data-label="توضیحات">
                     <input
+                      aria-label={`توضیحات، تراکنش ${i + 1}`}
                       value={item.description}
                       onChange={(e) => update(i, "description", e.target.value)}
                     />
                   </td>
-                  <td>
+                  <td data-label="بدهکار">
                     <input
+                      aria-label={`بدهکار، تراکنش ${i + 1}`}
                       type="number"
                       min="0"
                       value={item.debit}
                       onChange={(e) => update(i, "debit", e.target.value)}
                     />
                   </td>
-                  <td>
+                  <td data-label="بستانکار">
                     <input
+                      aria-label={`بستانکار، تراکنش ${i + 1}`}
                       type="number"
                       min="0"
                       value={item.credit}
                       onChange={(e) => update(i, "credit", e.target.value)}
                     />
                   </td>
-                  <td>
+                  <td data-label="حذف تراکنش" className="entry-remove">
                     <button
+                      aria-label={`حذف تراکنش ${i + 1}`}
                       type="button"
                       className="icon-btn small danger"
                       onClick={() => setItems(items.filter((_, n) => n !== i))}
@@ -2313,7 +2339,7 @@ function Modal({ title, onClose, children }) {
       <section className="modal">
         <div className="modal-header">
           <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose}>
+          <button className="icon-btn" onClick={onClose} aria-label="بستن پنجره">
             <X size={18} />
           </button>
         </div>
