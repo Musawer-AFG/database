@@ -368,3 +368,57 @@ td { font-size: 13px; }
 .payment-history-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;background:#f8f8fb;border-radius:10px;flex-wrap:wrap}
 @media(max-width:700px){.payment-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.payment-form .modal-grid{grid-template-columns:1fr}.payment-form input,.payment-form textarea{font-size:16px;min-height:48px}.pay-action{width:100%;min-height:44px}.payment-result{align-items:flex-start;flex-direction:column}}
 @media(max-width:360px){.payment-summary-grid{grid-template-columns:1fr}}
+
+/* Functional inventory, payroll and report screens */
+.bars-list{display:flex;flex-direction:column;gap:15px;padding:6px 0 10px}
+.bar-item{min-width:0;display:flex;flex-direction:column;gap:9px}
+.bar-item>div:first-child{display:flex;justify-content:space-between;align-items:center;gap:14px;min-width:0}
+.bar-item strong{font-size:13px;color:#38313f;overflow-wrap:anywhere}
+.bar-item span{font-size:12px;color:#827b8d}
+.bar-track{height:9px;width:100%;background:#edeaf4;overflow:hidden;border-radius:30px}
+.bar-track span{display:block;height:100%;border-radius:30px;background:linear-gradient(90deg,#9858aa,#be9bd0);transition:width .2s ease}
+.info-note{font-size:13px;color:#5b5264;line-height:1.9;margin:14px 0 24px;border:1px solid #e6dded;border-radius:13px;padding:12px 16px;background:#faf8fd}
+.info-note strong{color:#432953}
+.form-error{color:#b32744;font-size:14px;font-weight:600;margin:12px 0 0}
+.report-filter{display:flex;flex-wrap:wrap;align-items:end;gap:12px;min-width:0}
+.report-filter label{display:flex;flex:1 1 160px;min-width:0;flex-direction:column;gap:7px;font-size:13px;color:#62566b}
+.report-filter input{width:100%;min-width:0;min-height:44px;font-size:15px}
+.report-filter>.btn{min-height:44px;white-space:nowrap}
+.report-summary{margin:18px 0}
+.report-summary>div{min-width:0}
+.report-summary strong{overflow-wrap:anywhere}
+.row-actions .btn{white-space:nowrap;min-height:40px}
+@media(max-width:760px){
+  .report-filter{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .report-filter label{min-width:0;width:100%;font-size:14px}
+  .report-filter .btn{width:100%;font-size:14px}
+  .bars-list{padding:10px 0}
+  .row-actions{flex-wrap:wrap}
+  .info-note{font-size:13px;margin-top:16px}
+}
+@media(max-width:460px){
+  .report-filter{grid-template-columns:minmax(0,1fr)}
+  .report-filter .btn{min-height:46px}
+  .bars-list strong{font-size:13px}
+}
+@media print{
+  .sidebar,.sidebar-overlay,.topbar,.page-toolbar .heading-actions,.filter-row,.report-filter,.modal-backdrop,.btn,.app-footer{display:none!important}
+  .app-shell{display:block!important}
+  .workspace,.workspace .main-area{display:block!important;width:100%!important;margin:0!important;padding:0!important}
+  .panel,.stat-card{box-shadow:none!important;break-inside:avoid}
+  .report-summary,.stats-grid{break-inside:avoid}
+}
+/* Dashboard monthly trends calculated from stored sales and expenses. */
+.monthly-overview{display:flex;flex-direction:column;gap:8px;min-width:0}
+.monthly-legend{display:flex;justify-content:flex-start;gap:16px;font-size:12px;color:#73667e;margin-bottom:6px}
+.monthly-legend span:before{content:"";display:inline-block;width:9px;height:9px;border-radius:3px;margin-left:6px}
+.monthly-legend .sale-key:before{background:#9d5dad}
+.monthly-legend .expense-key:before{background:#e8a5c3}
+.monthly-row{display:grid;grid-template-columns:54px minmax(0,1fr) 130px;gap:10px;align-items:center;font-size:12px;color:#5c5066}
+.monthly-row>strong{font-size:12px;font-weight:650;text-align:left;color:#4c385c}
+.monthly-bars{display:flex;flex-direction:column;gap:4px;min-width:0}
+.monthly-bars>div{height:6px;border-radius:30px;background:#f1eaf4;overflow:hidden}
+.monthly-bars i{display:block;height:100%;border-radius:30px}
+.monthly-bars .sales-bar{background:#9d5dad}
+.monthly-bars .expense-bar{background:#e8a5c3}
+@media(max-width:460px){.monthly-row{grid-template-columns:48px minmax(0,1fr) 85px;gap:8px}.monthly-row>strong{font-size:10px}}

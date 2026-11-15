@@ -65,3 +65,31 @@ Do not enter real financial or personal data until a proper backend, authenticat
 5. The balance is reduced, the payment is recorded in invoice history, and the entry disappears from the debtors list when fully paid.
 
 All demo data is stored in this browser's localStorage. Do not use for real client accounting or rely on it as a reliable financial record.
+
+## Updated: warehouse, payroll and reports
+
+### Working inventory demonstration
+
+Go to `محصولات`, add a product with **موجودی آغازین** and choose **گدام عمومی** or a created warehouse. Purchases add to current stock, sales deduct stock, sale returns add stock, and manual movements/warehouse transfers are entered through **داشبورد گدام → ثبت حرکت گدام**. Stock figures are *derived* from records and recalculate if an invoice is deleted. Overselling a warehouse is blocked for new invoices.
+
+### Working payroll demonstration
+
+Create an employee and set **معاش ماهانه**. Then open **معاشات و دستمزد → محاسبه معاش**; choose an Afghan month and enter base salary, bonus and deductions. Save a draft salary slip and press **ثبت پرداخت** to mark it paid. Only one slip per employee/month is permitted. These calculations are simple examples and do not implement Afghan labor/tax/insurance obligations.
+
+### Reports
+
+The sidebar now includes **گزارش عمومی**, **تراز آزمایشی**, **گزارش روزنامه**, **گزارش کل** and **گزارش اسناد**. Date range filtering uses Afghan months (for example `1405/08/21`). CSV export uses the displayed, filtered records. Reports are based on current browser data.
+
+**Accounting limitation:** Sales/purchase bills are included in the *general business report*, but are NOT automatically posted as balanced journal entries in this frontend. Consequently, the trial balance, general ledger and journal reports show only the manually recorded journal entries. Do not use them as formal financial statements.
+
+For step-by-step test cases, see `DEMO_QA.md`.
+
+### Run the included calculation tests
+
+Requires Node.js 20+ for the built-in test runner:
+
+```bash
+npm run test
+```
+
+These tests verify the calculation helpers. They do not replace browser-level or production end-to-end testing.

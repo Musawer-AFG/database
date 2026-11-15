@@ -59,6 +59,7 @@ import {
   ClipboardCheck,
   CalendarCheck2,
 } from "lucide-react";
+import { AFGHAN_MONTHS, DEFAULT_WAREHOUSE, afghanCalendarParts, afghanDateOrder, isInAfghanRange, cash, inventoryState, findProduct, saleStockError, payrollAmounts, journalBalances, reportSummary } from "./business.js";
 import "./styles.css";
 import "./responsive.css";
 
@@ -126,6 +127,8 @@ const navGroups = [
       { id: "reports", label: "گزارش عمومی" },
       { id: "trialBalance", label: "تراز آزمایشی" },
       { id: "journalReport", label: "گزارش روزنامه" },
+      { id: "ledgerReport", label: "گزارش کل" },
+      { id: "documentReport", label: "گزارش اسناد" },
     ],
   },
   {
@@ -175,6 +178,8 @@ const navigationIcons = {
   reports: FileBarChart,
   trialBalance: Scale,
   journalReport: ClipboardList,
+  ledgerReport: BookOpen,
+  documentReport: FileText,
   warehouseDashboard: ChartPie,
   products: Package,
   groups: BoxesIcon,
@@ -200,6 +205,8 @@ const entityConfigs = {
       ["sstid", "شناسه SSTID محصول"],
       ["group", "گروه محصول"],
       ["unit", "واحد"],
+      ["quantity", "موجودی آغازین"],
+      ["warehouseId", "گدام آغازین"],
       ["cost", "بهای تمام‌شده"],
       ["price", "قیمت فروش"],
       ["tax", "مالیات محصول (%)"],
@@ -301,6 +308,7 @@ const entityConfigs = {
       ["name", "نام گدام"],
       ["location", "موقعیت"],
       ["manager", "مسؤول"],
+      ["quantity", "تعداد موجودی"],
       ["status", "وضعیت"],
     ],
   },
@@ -329,6 +337,7 @@ const entityConfigs = {
       ["startDate", "تاریخ آغاز قرارداد"],
       ["endDate", "تاریخ ختم قرارداد"],
       ["education", "سطح تحصیلات"],
+      ["salary", "معاش ماهانه (افغانی)"],
       ["status", "وضعیت"],
     ],
     columns: [
@@ -375,6 +384,7 @@ const initialData = {
   expenses: [],
   payroll: [],
   attendance: [],
+  stockMovements: [],
 };
 function loadInitial() {
   try {
@@ -427,6 +437,11 @@ function App() {
     notes: "",
   });
   const [paymentForm, setPaymentForm] = useState({ amount: "", date: today, notes: "" });
+  const [stockMovementForm, setStockMovementForm] = useState({
+    kind: "in", productId: "", warehouseId: DEFAULT_WAREHOUSE,
+    fromWarehouseId: DEFAULT_WAREHOUSE, toWarehouseId: "", quantity: "", date: today, notes: ""
+  });
+  const [payrollForm, setPayrollForm] = useState({});
   const [journalItems, setJournalItems] = useState([
     { account: "", description: "", debit: 0, credit: 0 },
   ]);
@@ -458,7 +473,23 @@ function App() {
   function saveEntity(e) {
     e.preventDefault();
     const key = modal.key;
+    if (key === "products" && !String(form.name || "").trim()) { notify("نام محصول ضروری است."); return; }
+    if (key === "products" && ["quantity", "cost", "price"].some(k => Number(form[k] || 0) < 0)) {
+      notify("تعداد و قیمت محصول نباید منفی باشد."); return;
+    }
     const entry = { ...form, id: editId ?? Date.now() };
+    if (key === "products") {
+      const proposed = { ...data, products: editId
+        ? data.products.map(p => p.id === editId ? entry : p)
+        : [...data.products, entry] };
+      if ([...inventoryState(proposed).positions.values()].some(q => q < -0.00001)) {
+        notify("این تغییر باعث موجودی منفی می‌شود. ابتدا معاملات و حرکت‌های گدام را بررسی کنید."); return;
+      }
+      if (editId && String(form.name||'') !== String(data.products.find(p=>p.id===editId)?.name||'') &&
+        data.invoices.some(inv => (inv.items||[]).some(line => !line.productId && line.product === data.products.find(p=>p.id===editId)?.name))) {
+        notify("برای حفظ بل‌های قدیمی، نام این محصول را نمی‌توان تغییر داد."); return;
+      }
+    }
     setData((prev) => ({
       ...prev,
       [key]: editId
@@ -471,6 +502,15 @@ function App() {
     notify(editId ? "تغییرات ثبت شد." : "معلومات جدید ثبت شد.");
   }
   function deleteEntity(key, id) {
+    if (key === "products" && (
+      data.invoices.some(inv => (inv.items || []).some(line => String(line.productId) === String(id) || line.product === data.products.find(p => p.id === id)?.name)) ||
+      data.stockMovements.some(m => String(m.productId) === String(id))
+    )) { notify("این محصول سابقه معامله دارد؛ برای حفظ سابقه حذف نمی‌شود."); return; }
+    if (key === "warehouses" && (
+      data.products.some(p => String(p.warehouseId) === String(id)) ||
+      data.invoices.some(i => String(i.warehouseId) === String(id)) ||
+      data.stockMovements.some(m => [m.warehouseId,m.fromWarehouseId,m.toWarehouseId].some(x => String(x)===String(id)))
+    )) { notify("این گدام مورد استفاده است و حذف نمی‌شود."); return; }
     setData((prev) => ({
       ...prev,
       [key]: prev[key].filter((r) => r.id !== id),
@@ -478,12 +518,22 @@ function App() {
     notify("مورد حذف شد.");
   }
   function openInvoice(type) {
-    setInvoiceForm({ date: today, party: "", title: "", paid: 0, notes: "" });
+    setInvoiceForm({ date: today, party: "", title: "", paid: 0, notes: "", warehouseId: DEFAULT_WAREHOUSE });
     setInvoiceItems([{ product: "", quantity: 1, price: "", discount: 0 }]);
     setModal({ type: "invoice", invoiceType: type });
   }
   function saveInvoice(e) {
     e.preventDefault();
+    if (!invoiceItems.length) { notify("حداقل یک قلم در بل اضافه کنید."); return; }
+    if (!invoiceItems.every(i => Number(i.quantity) > 0 && Number(i.price) >= 0 && Number(i.discount || 0) >= 0 && Number(i.discount || 0) <= Number(i.quantity) * Number(i.price))) {
+      notify("تعداد، قیمت و تخفیف اقلام را بررسی کنید."); return;
+    }
+    const unknown = invoiceItems.find(i => !findProduct(i, data.products));
+    if (unknown) { notify(`محصول «${unknown.product || "نامشخص"}» ثبت نشده است.`); return; }
+    if (modal.invoiceType === "sale") {
+      const error = saleStockError(data, invoiceItems, invoiceForm.warehouseId);
+      if (error) { notify(error); return; }
+    }
     const subtotal = invoiceItems.reduce(
       (s, i) =>
         s + (Number(i.quantity) * Number(i.price) - Number(i.discount || 0)),
@@ -504,7 +554,7 @@ function App() {
         data.invoices.filter((x) => x.type === modal.invoiceType).length + 1,
       type: modal.invoiceType,
       ...invoiceForm,
-      items: invoiceItems.map((x) => ({ ...x })),
+      items: invoiceItems.map((x) => ({ ...x, productId: findProduct(x, data.products)?.id })),
       total: subtotal,
       paid: initialPaid,
       balance: Math.max(0, Math.round((subtotal - initialPaid) * 100) / 100),
@@ -514,6 +564,20 @@ function App() {
     setData((prev) => ({ ...prev, invoices: [invoice, ...prev.invoices] }));
     setModal(null);
     notify("بل ثبت شد.");
+  }
+  function deleteInvoice(id) {
+    const existing = data.invoices.find(x => x.id === id);
+    if (!existing) return;
+    const before = inventoryState(data);
+    const after = inventoryState({ ...data, invoices: data.invoices.filter(x => x.id !== id) });
+    for (const [key, quantity] of after.positions) {
+      if (quantity < 0 && quantity < (before.positions.get(key) || 0)) {
+        notify("حذف این بل موجودی گدام را منفی می‌کند. ابتدا حرکات بعدی را بررسی کنید.");
+        return;
+      }
+    }
+    setData(prev => ({ ...prev, invoices: prev.invoices.filter(x => x.id !== id) }));
+    notify("بل حذف شد و موجودی گدام به‌روز گردید.");
   }
   function openPayment(invoice) {
     if (invoice.type !== "sale" || Number(invoice.balance || 0) <= 0) return;
@@ -557,6 +621,61 @@ function App() {
     setModal(null);
     notify("دریافت پول ثبت شد و مانده مشتری به‌روز گردید.");
   }
+  function openStockMovement() {
+    setStockMovementForm({ kind: "in", productId: "", warehouseId: DEFAULT_WAREHOUSE, fromWarehouseId: DEFAULT_WAREHOUSE,
+      toWarehouseId: "", quantity: "", date: today, notes: "" });
+    setModal({ type: "stock" });
+  }
+  function saveStockMovement(e) {
+    e.preventDefault();
+    const item = stockMovementForm;
+    const qty = Number(item.quantity);
+    if (!item.productId || !Number.isFinite(qty) || qty <= 0) { notify("محصول و تعداد معتبر انتخاب کنید."); return; }
+    const origin = item.kind === "transfer" ? item.fromWarehouseId : item.warehouseId;
+    if (item.kind === "transfer" && (!item.toWarehouseId || item.toWarehouseId === origin)) {
+      notify("گدام مبدأ و مقصد باید متفاوت باشد."); return;
+    }
+    if ((item.kind === "out" || item.kind === "transfer") && inventoryState(data).get(item.productId, origin) < qty) {
+      notify("موجودی کافی در گدام انتخاب‌شده وجود ندارد."); return;
+    }
+    setData(prev => ({ ...prev, stockMovements: [{ ...item, id: Date.now(), quantity: qty }, ...prev.stockMovements] }));
+    setModal(null); notify("حرکت گدام ثبت شد.");
+  }
+  function openPayroll(selectedYear, selectedMonth) {
+    const parts = afghanCalendarParts();
+    setPayrollForm({ employeeId: "", year: String(selectedYear || parts.year), month: String(selectedMonth || parts.month), base: "", bonus: "0",
+      deduction: "0", employerInsurance: "0", date: today, notes: "" });
+    setModal({ type: "payroll" });
+  }
+  function savePayroll(e) {
+    e.preventDefault();
+    const record = payrollForm;
+    const employee = data.employees.find(x => String(x.id) === String(record.employeeId));
+    if (!employee) { notify("کارمند را انتخاب کنید."); return; }
+    const year = Number(record.year), month = Number(record.month);
+    if (year < 1300 || year > 1600 || month < 1 || month > 12) { notify("ماه و سال افغانى معتبر انتخاب کنید."); return; }
+    if ([record.base, record.bonus, record.deduction, record.employerInsurance].some(v => !Number.isFinite(Number(v)) || Number(v) < 0)) {
+      notify("مبالغ معاش نباید منفی باشند."); return;
+    }
+    if (Number(record.deduction) > Number(record.base) + Number(record.bonus)) { notify("کسورات نمی‌تواند بیشتر از مجموع معاش باشد."); return; }
+    if (data.payroll.some(x => String(x.employeeId) === String(employee.id) && Number(x.year) === year && Number(x.month) === month)) {
+      notify("برای این کارمند در ماه انتخاب‌شده برگه معاش موجود است."); return;
+    }
+    const amounts = payrollAmounts(record);
+    setData(prev => ({ ...prev, payroll: [{ ...record, ...amounts, year, month, employeeName: [employee.firstName, employee.lastName].filter(Boolean).join(" "),
+      unit: employee.unit || "—", status: "draft", id: Date.now() }, ...prev.payroll] }));
+    setModal(null); notify("برگه معاش ثبت شد.");
+  }
+  function markPayrollPaid(id) {
+    setData(prev => ({ ...prev, payroll: prev.payroll.map(x => x.id === id ? { ...x, status: "paid", paidDate: today } : x) }));
+    notify("پرداخت معاش ثبت شد.");
+  }
+  function deletePayroll(id) {
+    const record = data.payroll.find(x => x.id === id);
+    if (record?.status === "paid") { notify("برگه پرداخت‌شده را نمی‌توان حذف کرد."); return; }
+    setData(prev => ({ ...prev, payroll: prev.payroll.filter(x => x.id !== id) }));
+    notify("برگه معاش حذف شد.");
+  }
   function openJournal() {
     setForm({ name: "", date: today, notes: "" });
     setJournalItems([{ account: "", description: "", debit: 0, credit: 0 }]);
@@ -566,9 +685,12 @@ function App() {
     e.preventDefault();
     const debit = journalItems.reduce((s, x) => s + Number(x.debit || 0), 0);
     const credit = journalItems.reduce((s, x) => s + Number(x.credit || 0), 0);
+    if (!journalItems.length || debit <= 0 || cash(debit) !== cash(credit) || journalItems.some(r => !String(r.account || "").trim() || (Number(r.debit||0)>0 && Number(r.credit||0)>0))) {
+      notify("سند باید حداقل دو حساب و مجموع بدهکار و بستانکار مساوی داشته باشد."); return;
+    }
     const entry = {
       id: Date.now(),
-      number: data.journals.length + 1,
+      number: data.journals.length ? Math.max(...data.journals.map(j=>Number(j.number)||0)) + 1 : 1,
       ...form,
       rows: journalItems,
       debit,
@@ -593,7 +715,9 @@ function App() {
       receivable: data.invoices
         .filter((x) => x.type === "sale")
         .reduce((s, x) => s + x.balance, 0),
-      stock: data.products.reduce((s, x) => s + Number(x.quantity || 0), 0),
+      stock: inventoryState(data).value,
+      expenses: data.expenses.reduce((s,x)=>s+Number(x.amount||0),0),
+      paidWages: data.payroll.filter(x=>x.status==='paid').reduce((s,x)=>s+payrollAmounts(x).net,0),
     }),
     [data],
   );
@@ -611,11 +735,7 @@ function App() {
       );
     if (page === "warehouseDashboard")
       return (
-        <WarehouseDashboard
-          data={data}
-          totals={totals}
-          onNavigate={setCurrentPage}
-        />
+        <WarehouseDashboard data={data} totals={totals} onNavigate={setCurrentPage} onStock={openStockMovement} />
       );
     if (page === "customersDashboard")
       return (
@@ -647,6 +767,7 @@ function App() {
           onEdit={(r) => openEntityForm(page, r)}
           onDelete={(id) => deleteEntity(page, id)}
           receivables={page === "customers" ? customerReceivables(data.invoices) : {}}
+          inventory={inventoryState(data)}
         />
       );
     }
@@ -666,13 +787,7 @@ function App() {
                   : "return",
             )
           }
-          onDelete={(id) => {
-            setData((p) => ({
-              ...p,
-              invoices: p.invoices.filter((x) => x.id !== id),
-            }));
-            notify("بل حذف شد.");
-          }}
+          onDelete={deleteInvoice}
           onPayment={openPayment}
         />
       );
@@ -693,9 +808,9 @@ function App() {
     if (page === "expenses")
       return <ExpensesPage data={data} setData={setData} notify={notify} />;
     if (page === "payroll")
-      return <PayrollPage data={data} onNavigate={setCurrentPage} />;
+      return <PayrollPage data={data} onNavigate={setCurrentPage} onAdd={openPayroll} onPaid={markPayrollPaid} onDelete={deletePayroll} />;
     if (page === "attendance") return <AttendancePage data={data} />;
-    if (["reports", "trialBalance", "journalReport"].includes(page))
+    if (["reports", "trialBalance", "journalReport", "ledgerReport", "documentReport"].includes(page))
       return <ReportsPage page={page} data={data} />;
     if (page === "settings") return <SettingsPage notify={notify} />;
     return (
@@ -928,6 +1043,8 @@ function App() {
                   ? "ثبت دریافت پول از مشتری"
                 : modal.type === "journal"
                   ? "ثبت سند حسابداری"
+                  : modal.type === "stock" ? "ثبت حرکت گدام"
+                  : modal.type === "payroll" ? "محاسبه و ثبت معاش"
                   : "ثبت مصارف"
           }
           onClose={() => setModal(null)}
@@ -937,6 +1054,7 @@ function App() {
               config={entityConfigs[modal.key]}
               form={form}
               setForm={setForm}
+              data={data}
               onSubmit={saveEntity}
               onCancel={() => setModal(null)}
             />
@@ -962,6 +1080,8 @@ function App() {
               onCancel={() => setModal(null)}
             />
           )}
+          {modal.type === "stock" && <StockMovementForm data={data} form={stockMovementForm} setForm={setStockMovementForm} onSubmit={saveStockMovement} onCancel={() => setModal(null)} />}
+          {modal.type === "payroll" && <PayrollForm data={data} form={payrollForm} setForm={setPayrollForm} onSubmit={savePayroll} onCancel={() => setModal(null)} />}
           {modal.type === "journal" && (
             <JournalForm
               form={form}
@@ -1055,7 +1175,7 @@ function Dashboard({ data, totals, onNavigate, onInvoice, onJournal }) {
           value={money(totals.stock)}
           icon={Warehouse}
           tone="blue"
-          note="بر اساس تعداد ثبت‌شده"
+          note="به اساس بهای تمام‌شده موجودی فعلی"
         />
         <StatCard
           label="درآمد از ابتدای سال"
@@ -1065,13 +1185,13 @@ function Dashboard({ data, totals, onNavigate, onInvoice, onJournal }) {
         />
         <StatCard
           label="مصارف ثبت‌شده"
-          value={money(0)}
+          value={money(totals.expenses)}
           icon={TrendingDown}
           tone="rose"
         />
         <StatCard
-          label="سود و زیان"
-          value={money(totals.sales - totals.purchases)}
+          label="معاشات پرداخت‌شده"
+          value={money(totals.paidWages)}
           icon={ChartNoAxesCombined}
           tone="violet"
         />
@@ -1093,7 +1213,7 @@ function Dashboard({ data, totals, onNavigate, onInvoice, onJournal }) {
           title="درآمد و مصارف ماهانه"
           action={<span className="muted-pill">سال مالی ۱۴۰۵</span>}
         >
-          <ChartPlaceholder labels={afghanMonths.slice(0, 8)} />
+          <MonthlyOverview data={data} />
         </Panel>
         <Panel
           title="بل‌های فروش پرداخت‌نشده"
@@ -1124,17 +1244,47 @@ function Dashboard({ data, totals, onNavigate, onInvoice, onJournal }) {
             </button>
           }
         >
-          <EmptyState text="هنوز فروشی ثبت نشده است." />
+          <TopProducts data={data} />
         </Panel>
         <Panel
           title="فعالیت‌های اخیر"
           action={<span className="muted-pill">آخرین رویدادها</span>}
         >
-          <EmptyState text="فعالیتی برای نمایش وجود ندارد." />
+          <RecentBusinessActivity data={data} />
         </Panel>
       </div>
     </>
   );
+}
+function MonthlyOverview({ data }) {
+  const currentYear = afghanCalendarParts().year;
+  const monthly = afghanMonths.map((name,index)=> {
+    const period=`${currentYear}/${String(index+1).padStart(2,'0')}`;
+    const summary=reportSummary(data,`${period}/01`,`${period}/${index < 6 ? '31' : '30'}`);
+    return {name,sales:summary.sales,expenses:summary.expenses};
+  });
+  const maximum=Math.max(1,...monthly.flatMap(m=>[m.sales,m.expenses]));
+  return <div className="monthly-overview">
+    <div className="monthly-legend"><span className="sale-key">فروش</span><span className="expense-key">مصارف</span></div>
+    {monthly.map(m=><div key={m.name} className="monthly-row"><span>{m.name}</span><div className="monthly-bars">
+      <div title={`فروش: ${money(m.sales)}`}><i className="sales-bar" style={{width:`${m.sales/maximum*100}%`}}/></div>
+      <div title={`مصارف: ${money(m.expenses)}`}><i className="expense-bar" style={{width:`${m.expenses/maximum*100}%`}}/></div>
+    </div><strong>{money(m.sales)}</strong></div>)}
+  </div>;
+}
+function TopProducts({data}) {
+  const totals = new Map();
+  for (const invoice of data.invoices.filter(x=>x.type==='sale')) for(const line of invoice.items||[]) {
+    const name=line.product||'نامشخص';totals.set(name,(totals.get(name)||0)+Number(line.quantity||0));
+  }
+  const rows=[...totals.entries()].sort((a,b)=>b[1]-a[1]).slice(0,7).map(([name,quantity],i)=>({id:i,name,quantity}));
+  return <DataTable columns={[["name","محصول"],["quantity","تعداد فروش"]]} rows={rows} empty="هنوز فروشی ثبت نشده است."/>;
+}
+function RecentBusinessActivity({data}) {
+  const rows=[...data.invoices.map(x=>({id:`i-${x.id}`,date:x.date,category:x.type==='sale'?'فروش':x.type==='purchase'?'خرید':'برگشتی',title:x.party||x.title||'—',amount:x.total})),
+    ...data.expenses.map(x=>({id:`e-${x.id}`,date:x.date,category:'مصرف',title:x.name,amount:x.amount}))]
+    .sort((a,b)=>afghanDateOrder(b.date)-afghanDateOrder(a.date)).slice(0,6);
+  return <DataTable columns={[["date","تاریخ"],["category","نوع"],["title","شرح"],["amount","مبلغ"]]} rows={rows} empty="فعالیتی برای نمایش وجود ندارد."/>;
 }
 function ChartPlaceholder({ labels }) {
   return (
@@ -1172,89 +1322,55 @@ function EmptyState({ text }) {
     </div>
   );
 }
-function WarehouseDashboard({ data, totals, onNavigate }) {
-  const low = data.products.filter(
-    (x) => Number(x.quantity || 0) <= Number(x.reorder || 0),
-  );
-  return (
-    <>
-      <PageHeading
-        title="داشبورد گدام"
-        description="شاخص‌های موجودی، تحرک و عملکرد گدام"
-        actions={
-          <button
-            className="btn secondary"
-            onClick={() => onNavigate("products")}
-          >
-            لیست محصولات <Package size={15} />
-          </button>
-        }
-      />
-      <div className="stats-grid six">
-        <StatCard
-          label="ارزش کل موجودی"
-          value={money(
-            data.products.reduce(
-              (s, x) => s + Number(x.quantity || 0) * Number(x.cost || 0),
-              0,
-            ),
-          )}
-          icon={CircleDollarSign}
-          tone="blue"
-        />
-        <StatCard
-          label="تعداد کا‌لاها"
-          value={number(totals.products)}
-          icon={Package}
-          tone="violet"
-        />
-        <StatCard
-          label="زیر نقطه سفارش"
-          value={number(low.length)}
-          icon={AlertCircle}
-          tone="rose"
-        />
-        <StatCard label="کا‌لاهای راکد" value="۰" icon={Clock3} tone="amber" />
-        <StatCard
-          label="گردش موجودی"
-          value="۰ بار"
-          icon={ArrowLeftRight}
-          tone="green"
-        />
-        <StatCard
-          label="ورودی دوره"
-          value="۰"
-          icon={ArrowDownLeft}
-          tone="cyan"
-        />
-      </div>
-      <div className="dashboard-grid">
-        <Panel title="تعداد کا‌لا در هر دسته‌بندی">
-          <EmptyState text="برای نمایش نمودار، محصولات را ثبت کنید." />
-        </Panel>
-        <Panel title="روند ورودی و خروجی گدام">
-          <ChartPlaceholder labels={afghanMonths.slice(0, 8)} />
-        </Panel>
-        <Panel title="هشدارها و یادآوری‌ها">
-          <div className="notice-row">
-            <AlertCircle size={17} />
-            <span>
-              {low.length
-                ? `${low.length} محصول به موجودی بیشتر نیاز دارد.`
-                : "در حال حاضر هیچ کا‌لایی زیر نقطه سفارش نیست."}
-            </span>
-          </div>
-          <div className="notice-row">
-            <Activity size={17} />
-            <span>گزارش تحرک گدام پس از ثبت بل‌ها نمایش داده می‌شود.</span>
-          </div>
-        </Panel>
-        <Panel title="کا‌لاهای زیر نقطه سفارش">
-          <EmptyState text="همه کا‌لاها بالاتر از نقطه سفارش هستند." />
-        </Panel>
-      </div>
-    </>
-  );
+function WarehouseDashboard({ data, totals, onNavigate, onStock }) {
+  const inventory = inventoryState(data);
+  const lowStock = inventory.rows.filter(p => Number(p.reorder || 0) > 0 && p.quantity <= Number(p.reorder));
+  const groups = Object.entries(inventory.rows.reduce((acc, p) => {
+    const group = p.group || "عمومی";
+    acc[group] = (acc[group] || 0) + 1;
+    return acc;
+  }, {})).map(([label, amount]) => ({label,amount}));
+  const warehouses = [{id: DEFAULT_WAREHOUSE, name: "گدام عمومی"}, ...data.warehouses];
+  const warehouseRows = warehouses.map(w => ({
+    id: w.id, name: w.name,
+    quantity: inventory.rows.reduce((sum, p) => sum + inventory.get(p.id, w.id), 0),
+    value: inventory.rows.reduce((sum,p) => sum + inventory.get(p.id,w.id)*Number(p.cost||0),0)
+  })).filter(w => w.id !== DEFAULT_WAREHOUSE || w.quantity !== 0 || !data.warehouses.length);
+  const warehouseNames = Object.fromEntries(warehouses.map(x => [String(x.id),x.name]));
+  const activity = inventory.movements.slice().reverse().slice(0, 12).map(m => ({
+    ...m, warehouse: m.type === "transfer" ? `${warehouseNames[m.fromWarehouseId] || 'گدام عمومی'} ← ${warehouseNames[m.toWarehouseId] || 'گدام عمومی'}` : warehouseNames[m.warehouseId] || 'گدام عمومی',
+    movement: m.quantity > 0 ? `+${number(m.quantity)}` : number(m.quantity)
+  }));
+  return <>
+    <PageHeading title="داشبورد گدام" description="موجودی زنده، حرکت اجناس و وضعیت گدام‌ها بر اساس بل‌ها و اصلاحات ثبت‌شده"
+      actions={<><button className="btn secondary" onClick={() => onNavigate("products")}><Package size={16}/> محصولات</button>
+        <button className="btn primary" onClick={onStock}><ArrowLeftRight size={16}/> ثبت حرکت گدام</button></>}/>
+    <div className="stats-grid six">
+      <StatCard label="ارزش موجودی" value={money(inventory.value)} icon={CircleDollarSign} tone="blue"/>
+      <StatCard label="محصولات ثبت‌شده" value={number(inventory.rows.length)} icon={Package} tone="violet"/>
+      <StatCard label="تعداد موجودی" value={number(inventory.totalQuantity)} icon={Boxes} tone="green"/>
+      <StatCard label="زیر نقطه سفارش" value={number(lowStock.length)} icon={AlertCircle} tone="rose"/>
+      <StatCard label="کل ورودی ثبت‌شده" value={number(inventory.incoming)} icon={ArrowDownLeft} tone="cyan"/>
+      <StatCard label="کل خروجی ثبت‌شده" value={number(inventory.outgoing)} icon={ArrowUpLeft} tone="amber"/>
+    </div>
+    <div className="dashboard-grid">
+      <Panel title="موجودی به تفکیک گدام" action={<button className="text-btn" onClick={() => onNavigate('warehouses')}>مدیریت گدام‌ها</button>}>
+        <DataTable columns={[["name","گدام"],["quantity","مجموع تعداد"],["value","ارزش موجودی (افغانی)"]]} rows={warehouseRows} empty="گدامی ثبت نشده است."/>
+      </Panel>
+      <Panel title="محصولات به تفکیک گروه">
+        {groups.length ? <div className="bars-list">{groups.map(g => <div className="bar-item" key={g.label}><div><strong>{g.label}</strong><span>{number(g.amount)} محصول</span></div><div className="bar-track"><span style={{width:`${Math.round(g.amount / Math.max(...groups.map(x=>x.amount))*100)}%`}}/></div></div>)}</div>
+        : <EmptyState text="برای نمایش گروه‌ها، ابتدا محصول ثبت کنید."/>}
+      </Panel>
+      <Panel title="محصولات کم‌موجودی" action={<span className="muted-pill">{number(lowStock.length)} محصول</span>}>
+        <DataTable columns={[["name","محصول"],["quantity","موجودی"],["reorder","نقطه سفارش"]]} rows={lowStock}
+          empty="در حال حاضر محصولی زیر نقطه سفارش نیست."/>
+      </Panel>
+      <Panel title="آخرین حرکت‌های گدام">
+        <DataTable columns={[["date","تاریخ"],["product","محصول"],["warehouse","گدام"],["movement","تغییر تعداد"],["source","نوع ثبت"]]} rows={activity} empty="تا هنوز حرکتی ثبت نشده است."/>
+      </Panel>
+    </div>
+    <p className="info-note">موجودی فعلی = موجودی آغازین + خریدها + برگشتی‌ها + ورودی‌ها − فروشات − خروجی‌ها. انتقال میان گدام‌ها مجموع موجودی را تغییر نمی‌دهد.</p>
+  </>;
 }
 function CustomersDashboard({ data, totals, onNavigate, onInvoice }) {
   return (
@@ -1333,9 +1449,12 @@ function EntityPage({
   onEdit,
   onDelete,
   receivables = {},
+  inventory,
 }) {
   const cfg = entityConfigs[page];
-  const rows = page === "customers"
+  const rows = page === "products" ? inventory.rows : page === "warehouses" ? (data.warehouses || []).map(w => ({
+    ...w, quantity: data.products.reduce((sum, product) => sum + inventory.get(product.id, w.id), 0)
+  })) : page === "customers"
     ? (data[page] || []).map((row) => ({ ...row, balance: receivables[row.name] || 0 }))
     : (data[page] || []);
   const filtered = rows.filter((row) =>
@@ -1477,6 +1596,15 @@ function formatCell(value, key) {
       "paid",
       "debit",
       "credit",
+      "quantity",
+      "reorder",
+      "amount",
+      "value",
+      "gross",
+      "net",
+      "deduction",
+      "debitBalance",
+      "creditBalance",
     ].includes(key)
   )
     return number(value);
@@ -1865,95 +1993,53 @@ function ExpensesPage({ data, setData, notify }) {
     </>
   );
 }
-function PayrollPage({ data, onNavigate }) {
-  return (
-    <>
-      <PageHeading
-        title="داشبورد معاشات و دستمزد"
-        description="نمای کلی پرداختی‌ها، کسورات و حاضری کارمندان"
-        actions={
-          <button
-            className="btn primary"
-            onClick={() => onNavigate("employees")}
-          >
-            <Plus size={15} /> افزودن کارمند
-          </button>
-        }
-      />
-      <div className="filter-row">
-        <label>
-          ماه
-          <select defaultValue="عقرب">
-            {afghanMonths.map((m) => (
-              <option key={m}>{m}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          واحد سازمانی
-          <select>
-            <option>همه واحدها</option>
-          </select>
-        </label>
-        <button className="btn secondary">
-          <Filter size={15} /> اعمال
-        </button>
-        <button className="btn secondary">بازنشانی</button>
-      </div>
-      <div className="stats-grid six">
-        <StatCard
-          label="درآمد کل ناخالص"
-          value={money(0)}
-          icon={Wallet}
-          tone="blue"
-        />
-        <StatCard
-          label="مجموع کسورات"
-          value={money(0)}
-          icon={TrendingDown}
-          tone="rose"
-        />
-        <StatCard
-          label="پرداخت خالص"
-          value={money(0)}
-          icon={CircleDollarSign}
-          tone="green"
-        />
-        <StatCard
-          label="بیمه کارفرما"
-          value={money(0)}
-          icon={BadgeCheck}
-          tone="violet"
-        />
-        <StatCard
-          label="سهم کارمندان"
-          value={number(data.employees.length)}
-          icon={Users}
-          tone="amber"
-        />
-        <StatCard
-          label="میانگین خالص"
-          value={money(0)}
-          icon={Activity}
-          tone="cyan"
-        />
-      </div>
-      <div className="dashboard-grid">
-        <Panel title="روند معاش و کسورات سال جاری">
-          <ChartPlaceholder labels={afghanMonths.slice(0, 8)} />
-        </Panel>
-        <Panel title="تفکیک مصارف به‌ازای واحد">
-          <EmptyState text="برای این دوره هزینه‌ای ثبت نشده است." />
-        </Panel>
-        <Panel title="هشدارها و یادآوری‌ها">
-          <EmptyState text="هشداری برای نمایش وجود ندارد." />
-        </Panel>
-        <Panel title="لیست معاشات کارمندان">
-          <EmptyState text="برای این دوره برگه معاش وجود ندارد." />
-        </Panel>
-      </div>
-    </>
+function PayrollPage({ data, onNavigate, onAdd, onPaid, onDelete }) {
+  const current = afghanCalendarParts();
+  const [month, setMonth] = useState(String(current.month));
+  const [year, setYear] = useState(String(current.year));
+  const [unit, setUnit] = useState('all');
+  const units = [...new Set(data.employees.map(x=>x.unit).filter(Boolean))];
+  const rows = (data.payroll || []).filter(p =>
+    (month === 'all' || Number(p.month) === Number(month)) && (year === 'all' || Number(p.year) === Number(year)) &&
+    (unit === 'all' || p.unit === unit)
   );
+  const payrollTotal = rows.reduce((a,p)=> {
+    const v = payrollAmounts(p);
+    return { gross: a.gross+v.gross, deduction:a.deduction+v.deduction, net:a.net+v.net, insurance:a.insurance+v.insurance };
+  }, { gross:0,deduction:0,net:0,insurance:0 });
+  const paid = rows.filter(p => p.status === 'paid');
+  return <>
+    <PageHeading title="معاشات و دستمزد" description="محاسبه معاش ماهانه، ثبت کسورات و ثبت پرداخت کارمندان"
+      actions={<><button className="btn secondary" onClick={()=>onNavigate('employees')}><Users size={16}/> کارمندان</button>
+        <button className="btn primary" onClick={()=>onAdd(year === 'all' ? current.year : year, month === 'all' ? current.month : month)}><Plus size={16}/> محاسبه معاش</button></>}/>
+    <div className="filter-row">
+      <label>ماه<select value={month} onChange={e=>setMonth(e.target.value)}><option value="all">تمام ماه‌ها</option>{afghanMonths.map((m,i)=><option key={m} value={i+1}>{m}</option>)}</select></label>
+      <label>سال هجری شمسی<select value={year} onChange={e=>setYear(e.target.value)}><option value="all">همه سال‌ها</option>{[current.year-1,current.year,current.year+1].map(y=><option key={y} value={y}>{number(y)}</option>)}</select></label>
+      <label>واحد سازمانی<select value={unit} onChange={e=>setUnit(e.target.value)}><option value="all">همه واحدها</option>{units.map(u=><option key={u}>{u}</option>)}</select></label>
+      <button className="btn secondary" onClick={()=>{setMonth('all');setYear('all');setUnit('all')}}>نمایش همه</button>
+    </div>
+    <div className="stats-grid six">
+      <StatCard label="معاش ناخالص" value={money(payrollTotal.gross)} icon={Wallet} tone="blue"/>
+      <StatCard label="کسورات" value={money(payrollTotal.deduction)} icon={TrendingDown} tone="rose"/>
+      <StatCard label="معاش خالص" value={money(payrollTotal.net)} icon={CircleDollarSign} tone="green"/>
+      <StatCard label="سهم بیمه کارفرما" value={money(payrollTotal.insurance)} icon={BadgeCheck} tone="violet"/>
+      <StatCard label="برگه‌های معاش" value={number(rows.length)} icon={Users} tone="amber"/>
+      <StatCard label="معاش پرداخت‌شده" value={money(paid.reduce((s,x)=>s+payrollAmounts(x).net,0))} icon={Activity} tone="cyan"/>
+    </div>
+    <Panel title="برگه‌های معاش کارمندان" action={<button className="btn secondary" onClick={()=> downloadCsv('معاشات', [['employeeName','کارمند'],['monthName','ماه'],['year','سال'],['gross','ناخالص'],['deduction','کسورات'],['net','خالص'],['paidLabel','وضعیت']], rows.map(x=>({...x,monthName:afghanMonths[Number(x.month)-1],paidLabel:x.status==='paid'?'پرداخت شده':'پرداخت نشده'})))}><Download size={15}/> خروجی CSV</button>}>
+      <div className="table-wrap mobile-card-table"><table><thead><tr><th>کارمند</th><th>ماه</th><th>واحد</th><th>ناخالص</th><th>کسورات</th><th>خالص</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+        <tbody>{rows.map(p=> {const v=payrollAmounts(p);return <tr key={p.id}>
+          <td data-label="کارمند">{p.employeeName}</td><td data-label="ماه">{afghanMonths[Number(p.month)-1]} {number(p.year)}</td><td data-label="واحد">{p.unit||'—'}</td>
+          <td data-label="ناخالص">{money(v.gross)}</td><td data-label="کسورات">{money(v.deduction)}</td><td data-label="خالص">{money(v.net)}</td>
+          <td data-label="وضعیت"><span className={`status ${p.status==='paid'?'success':'warning'}`}>{p.status==='paid'?'پرداخت شده':'پرداخت نشده'}</span></td>
+          <td data-label="عملیات" className="table-action-cell"><div className="row-actions">
+            {p.status!=='paid' && <><button className="btn primary" onClick={()=>onPaid(p.id)}>ثبت پرداخت</button><button className="icon-btn small danger" title="حذف برگه" onClick={()=>onDelete(p.id)}><Trash2 size={15}/></button></>}
+          </div></td>
+        </tr>})}{!rows.length && <tr className="empty-data-row"><td className="empty-table-cell" colSpan={8}><EmptyState text={data.employees.length ? 'برای این دوره برگه معاش ثبت نشده است. روی «محاسبه معاش» بزنید.' : 'ابتدا کارمند ثبت کنید و معاش ماهانه او را وارد نمایید.'}/></td></tr>}</tbody>
+      </table></div>
+    </Panel>
+    <p className="info-note">این نسخه برای نمایش روند معاشات است. محاسبه مالیات، قوانین کار، بیمه و کسورات قانونی افغانستان به صورت خودکار پیاده‌سازی نشده است.</p>
+  </>;
 }
 function AttendancePage({ data }) {
   return (
@@ -2026,78 +2112,79 @@ function AttendancePage({ data }) {
   );
 }
 function ReportsPage({ page, data }) {
-  const title =
-    page === "trialBalance"
-      ? "تراز آزمایشی در سطح کل"
-      : page === "journalReport"
-        ? "گزارش روزنامه"
-        : "گزارش عمومی";
-  return (
-    <>
-      <PageHeading
-        title={title}
-        description="گزارش‌های حسابداری و تجارتی بر اساس دوره انتخاب‌شده"
-        actions={
-          <button className="btn secondary" onClick={() => window.print()}>
-            <Printer size={15} /> چاپ
-          </button>
-        }
-      />
-      <Panel title="فلتر گزارش">
-        <div className="form-grid">
-          <label>
-            تاریخ شروع
-            <input defaultValue={today} />
-          </label>
-          <label>
-            تاریخ پایان
-            <input defaultValue={today} />
-          </label>
-          <label>
-            شماره شروع سند
-            <input placeholder="از شماره" />
-          </label>
-          <label>
-            شماره پایان سند
-            <input placeholder="تا شماره" />
-          </label>
-          <div>
-            <button className="btn primary">
-              <Search size={15} /> جستجو برای اسناد
-            </button>
-          </div>
-        </div>
-      </Panel>
-      <Panel title={title}>
-        <div className="report-summary">
-          <div>
-            <span>بدهکار</span>
-            <strong>{money(0)}</strong>
-          </div>
-          <div>
-            <span>بستانکار</span>
-            <strong>{money(0)}</strong>
-          </div>
-          <div>
-            <span>تعداد اسناد</span>
-            <strong>{number(data.journals.length)}</strong>
-          </div>
-        </div>
-        <EmptyState text="برای محدوده انتخاب‌شده معلوماتی موجود نیست." />
-        <div className="report-actions">
-          <button className="btn secondary" onClick={() => window.print()}>
-            <Printer size={15} /> چاپ گزارش
-          </button>
-          <button
-            className="btn secondary"
-            onClick={() => downloadJournalCsv(data.journals)}
-          >
-            <Download size={15} /> تبدیل به CSV
-          </button>
-        </div>
-      </Panel>
-    </>
-  );
+  const titles = {trialBalance:'تراز آزمایشی',journalReport:'گزارش روزنامه',ledgerReport:'گزارش کل',documentReport:'گزارش اسناد',reports:'گزارش عمومی'};
+  const title = titles[page] || 'گزارش عمومی';
+  const [filter, setFilter] = useState({from:'',to:'',min:'',max:''});
+  const [applied, setApplied] = useState({from:'',to:'',min:'',max:''});
+  const [error, setError] = useState('');
+  const [accountFilter, setAccountFilter] = useState('all');
+  const saveFilter = (e) => {
+    e.preventDefault();
+    if ((filter.from && !afghanDateOrder(filter.from)) || (filter.to && !afghanDateOrder(filter.to))) {
+      setError('تاریخ را مانند 1405/08/21 یا ۲۱ عقرب ۱۴۰۵ وارد کنید.'); return;
+    }
+    if (filter.from && filter.to && afghanDateOrder(filter.from) > afghanDateOrder(filter.to)) {
+      setError('تاریخ شروع بعد از تاریخ پایان است.'); return;
+    }
+    setError(''); setApplied({...filter});
+  };
+  const journals = data.journals.filter(j => isInAfghanRange(j.date, applied.from, applied.to) &&
+    (!applied.min || Number(j.number) >= Number(applied.min)) && (!applied.max || Number(j.number) <= Number(applied.max)));
+  const balances = journalBalances(journals).map(x => ({...x, debitBalance: Math.max(0,cash(x.debit-x.credit)), creditBalance: Math.max(0,cash(x.credit-x.debit))}));
+  const totalDebit = balances.reduce((s,x)=>s+x.debit,0);
+  const totalCredit = balances.reduce((s,x)=>s+x.credit,0);
+  const journalLines = journals.flatMap(j => (j.rows||[]).map((line, i)=>({
+    id:`${j.id}-${i}`, number:j.number, date:j.date, name:j.name, account:line.account,
+    description:line.description, debit:Number(line.debit||0), credit:Number(line.credit||0)
+  })));
+  const ledgerAccounts = [...new Set(journalLines.map(x => x.account).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fa'));
+  const ledgerLines = accountFilter === 'all' ? journalLines : journalLines.filter(x => x.account === accountFilter);
+  const documentRows = journals.map(j => ({id:j.id,number:j.number,date:j.date,name:j.name,debit:Number(j.debit||0),credit:Number(j.credit||0)}));
+  const business = reportSummary(data, applied.from, applied.to);
+  const businessRows = [
+    ...business.invoices.map(x=>({id:`inv-${x.id}`,date:x.date,kind:x.type==='sale'?'بل فروش':x.type==='purchase'?'بل خرید':'بل برگشتی',name:x.party||x.title||'—',amount:x.total,paid:x.paid||0,balance:x.balance||0})),
+    ...business.expensesRows.map(x=>({id:`ex-${x.id}`,date:x.date,kind:'مصرف',name:x.name,amount:x.amount,paid:x.amount,balance:0})),
+    ...business.payrollRows.map(x=>({id:`pay-${x.id}`,date:x.paidDate||x.date,kind:'معاش پرداخت‌شده',name:x.employeeName,amount:payrollAmounts(x).net,paid:payrollAmounts(x).net,balance:0}))
+  ].sort((a,b)=>afghanDateOrder(b.date)-afghanDateOrder(a.date));
+  const columns = page==='reports' ? [['date','تاریخ'],['kind','نوع'],['name','شرح'],['amount','مبلغ (افغانی)'],['paid','پرداخت'],['balance','مانده']]
+    : page==='trialBalance' ? [['account','سرفصل حساب'],['debit','گردش بدهکار'],['credit','گردش بستانکار'],['debitBalance','مانده بدهکار'],['creditBalance','مانده بستانکار']]
+    : page==='documentReport' ? [['number','شماره سند'],['date','تاریخ'],['name','نام سند'],['debit','بدهکار'],['credit','بستانکار']]
+    : [['number','شماره سند'],['date','تاریخ'],['name','نام سند'],['account','سرفصل'],['description','شرح'],['debit','بدهکار'],['credit','بستانکار']];
+  const rows = page==='reports' ? businessRows : page==='trialBalance' ? balances : page==='ledgerReport' ? ledgerLines : page==='documentReport' ? documentRows : journalLines;
+  return <>
+    <PageHeading title={title} description="گزارش‌های قابل جستجو از معلومات ثبت‌شده در همین مرورگر"
+      actions={<><button className="btn secondary" onClick={()=>downloadCsv(title,columns,rows)}><Download size={15}/> خروجی CSV</button>
+      <button className="btn secondary" onClick={()=>window.print()}><Printer size={15}/> چاپ گزارش</button></>}/>
+    <Panel title="فلتر گزارش">
+      <form className="report-filter" onSubmit={saveFilter}>
+        <label>تاریخ شروع (هجری شمسی)<input value={filter.from} onChange={e=>setFilter({...filter,from:e.target.value})} placeholder="1405/01/01"/></label>
+        <label>تاریخ پایان (هجری شمسی)<input value={filter.to} onChange={e=>setFilter({...filter,to:e.target.value})} placeholder="1405/12/29"/></label>
+        {page==='ledgerReport' && <label>سرفصل حساب<select value={accountFilter} onChange={e=>setAccountFilter(e.target.value)}><option value="all">همه سرفصل‌ها</option>{ledgerAccounts.map(name=><option key={name}>{name}</option>)}</select></label>}
+        {page!=='reports' && <><label>شماره شروع سند<input type="number" min="1" value={filter.min} onChange={e=>setFilter({...filter,min:e.target.value})} placeholder="از شماره"/></label>
+          <label>شماره پایان سند<input type="number" min="1" value={filter.max} onChange={e=>setFilter({...filter,max:e.target.value})} placeholder="تا شماره"/></label></>}
+        <button className="btn primary" type="submit"><Search size={15}/> نمایش گزارش</button>
+        <button className="btn secondary" type="button" onClick={()=>{setFilter({from:'',to:'',min:'',max:''});setApplied({from:'',to:'',min:'',max:''});setError('')}}>پاک کردن فلتر</button>
+      </form>
+      {error && <p className="form-error" role="alert">{error}</p>}
+    </Panel>
+    {page==='reports' ? <div className="stats-grid six">
+      <StatCard label="مجموع فروش" value={money(business.sales)} icon={TrendingUp} tone="green"/>
+      <StatCard label="مجموع خرید" value={money(business.purchases)} icon={ShoppingCart} tone="blue"/>
+      <StatCard label="برگشتی‌ها" value={money(business.returns)} icon={Undo2} tone="violet"/>
+      <StatCard label="طلبات فروش" value={money(business.receivable)} icon={Clock3} tone="amber"/>
+      <StatCard label="مصارف ثبت‌شده" value={money(business.expenses)} icon={TrendingDown} tone="rose"/>
+      <StatCard label="معاشات پرداخت‌شده" value={money(business.paidPayroll)} icon={Wallet} tone="cyan"/>
+    </div> : <div className="report-summary">
+      <div><span>مجموع بدهکار</span><strong>{money(totalDebit)}</strong></div>
+      <div><span>مجموع بستانکار</span><strong>{money(totalCredit)}</strong></div>
+      <div><span>تعداد اسناد</span><strong>{number(journals.length)}</strong></div>
+    </div>}
+    <Panel title={title} action={<span className="muted-pill">{number(rows.length)} ریکارد</span>}>
+      <DataTable columns={columns} rows={rows} empty="در محدودهٔ انتخاب‌شده معلوماتی موجود نیست."/>
+    </Panel>
+    <p className="info-note">{page==='reports' ? 'این گزارش جمع‌بندی سادهٔ بل‌ها، مصارف و معاشات پرداخت‌شده است و محاسبهٔ مفاد خالص یا صورت مالی حسابرسی‌شده نیست.' :
+      'گزارش‌های حسابداری فعلاً فقط اسناد دستی ثبت‌شده در «اسناد حسابداری» را نمایش می‌دهند؛ بل‌ها هنوز به دفتر کل خودکار متصل نیستند.'}</p>
+  </>;
 }
 function SettingsPage({ notify }) {
   return (
@@ -2146,14 +2233,68 @@ function SettingsPage({ notify }) {
     </>
   );
 }
-function EntityForm({ config, form, setForm, onSubmit, onCancel }) {
+
+function StockMovementForm({data, form, setForm, onSubmit, onCancel}) {
+  const stock = inventoryState(data);
+  const warehouses = [{id:DEFAULT_WAREHOUSE,name:'گدام عمومی'}, ...data.warehouses];
+  const update = (key, value) => setForm(p => ({...p,[key]:value}));
+  const whSelect = (key,label) => <label>{label}<select value={form[key] || ''} onChange={e=>update(key,e.target.value)} required>
+    {key==='toWarehouseId' && <option value="">گدام مقصد را انتخاب کنید</option>}
+    {warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+  </select></label>;
+  const origin = form.kind === 'transfer' ? form.fromWarehouseId : form.warehouseId;
+  return <form onSubmit={onSubmit}>
+    <div className="modal-grid">
+      <label>نوع حرکت<select value={form.kind} onChange={e=>update('kind',e.target.value)}>
+        <option value="in">ورودی دستی (افزایش)</option><option value="out">خروجی دستی (کاهش)</option>
+        <option value="transfer">انتقال میان گدام‌ها</option></select></label>
+      <label>محصول<select value={form.productId} required onChange={e=>update('productId',e.target.value)}>
+        <option value="">محصول را انتخاب کنید</option>{data.products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+      {form.kind==='transfer' ? <>{whSelect('fromWarehouseId','از گدام')}{whSelect('toWarehouseId','به گدام')}</> : whSelect('warehouseId','گدام')}
+      <label>تعداد<input type="number" min="0.01" step="any" required value={form.quantity} onChange={e=>update('quantity',e.target.value)}/></label>
+      <label>تاریخ (هجری شمسی افغانستان)<input value={form.date} onChange={e=>update('date',e.target.value)} required/></label>
+      <label className="wide">دلیل / توضیحات<textarea rows={2} value={form.notes} onChange={e=>update('notes',e.target.value)} placeholder="مثلاً: شمارش موجودی یا انتقال میان گدام‌ها"/></label>
+    </div>
+    {form.productId && <p className="info-note">موجودی فعلی در گدام مبدأ: <strong>{number(stock.get(form.productId,origin))}</strong></p>}
+    <div className="modal-actions"><button type="button" className="btn secondary" onClick={onCancel}>لغو</button><button className="btn primary" type="submit"><Save size={16}/> ثبت حرکت</button></div>
+  </form>;
+}
+
+function PayrollForm({data,form,setForm,onSubmit,onCancel}) {
+  const update=(key,value)=>setForm(p=>({...p,[key]:value}));
+  const total=payrollAmounts(form);
+  return <form onSubmit={onSubmit}>
+    <div className="modal-grid">
+      <label>کارمند<select value={form.employeeId || ''} required onChange={e=>{
+        const employee=data.employees.find(x=>String(x.id)===String(e.target.value));
+        setForm(p=>({...p,employeeId:e.target.value,base:String(employee?.salary||0)}));
+      }}><option value="">کارمند را انتخاب کنید</option>{data.employees.map(e=><option key={e.id} value={e.id}>{e.firstName} {e.lastName} — {e.employeeCode||'بدون کد'}</option>)}</select></label>
+      <label>ماه<select value={form.month} onChange={e=>update('month',e.target.value)}>{afghanMonths.map((m,i)=><option key={m} value={i+1}>{m}</option>)}</select></label>
+      <label>سال هجری شمسی<input type="number" min="1300" max="1600" value={form.year} onChange={e=>update('year',e.target.value)} required/></label>
+      <label>معاش اصلی (افغانی)<input type="number" min="0" step="any" value={form.base||''} onChange={e=>update('base',e.target.value)} required/></label>
+      <label>اضافه‌کاری و امتیازات<input type="number" min="0" step="any" value={form.bonus ?? 0} onChange={e=>update('bonus',e.target.value)}/></label>
+      <label>کسورات<input type="number" min="0" step="any" value={form.deduction ?? 0} onChange={e=>update('deduction',e.target.value)}/></label>
+      <label>بیمه کارفرما (در صورت نیاز)<input type="number" min="0" step="any" value={form.employerInsurance ?? 0} onChange={e=>update('employerInsurance',e.target.value)}/></label>
+      <label>تاریخ صدور<input value={form.date} onChange={e=>update('date',e.target.value)}/></label>
+      <label className="wide">یادداشت<textarea value={form.notes||''} onChange={e=>update('notes',e.target.value)} rows={2}/></label>
+    </div>
+    <div className="payment-summary-grid"><div className="payment-summary-item"><span>ناخالص</span><strong>{money(total.gross)}</strong></div>
+      <div className="payment-summary-item"><span>خالص قابل پرداخت</span><strong>{money(total.net)}</strong></div></div>
+    <div className="modal-actions"><button type="button" className="btn secondary" onClick={onCancel}>لغو</button><button type="submit" className="btn primary"><Save size={16}/> ثبت برگه معاش</button></div>
+  </form>;
+}
+
+function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
   return (
     <form onSubmit={onSubmit}>
       <div className="modal-grid">
         {config.fields.map(([key, label]) => (
           <label key={key}>
             {label}
-            {["notes", "address"].includes(key) ? (
+            {key === "warehouseId" ? <select value={form.warehouseId || DEFAULT_WAREHOUSE} onChange={e => setForm({ ...form, warehouseId: e.target.value })}>
+              <option value={DEFAULT_WAREHOUSE}>گدام عمومی</option>
+              {data.warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select> : ["notes", "address"].includes(key) ? (
               <textarea
                 rows="2"
                 value={form[key] || ""}
@@ -2168,6 +2309,7 @@ function EntityForm({ config, form, setForm, onSubmit, onCancel }) {
                     "tax",
                     "reorder",
                     "quantity",
+                    "salary",
                     "opening",
                   ].includes(key)
                     ? "number"
@@ -2219,6 +2361,13 @@ function InvoiceForm({
   return (
     <form onSubmit={onSubmit}>
       <div className="modal-grid">
+        <label>
+          گدام
+          <select value={form.warehouseId || DEFAULT_WAREHOUSE} onChange={e => setForm({ ...form, warehouseId: e.target.value })}>
+            <option value={DEFAULT_WAREHOUSE}>گدام عمومی</option>
+            {data.warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </label>
         <label>
           نام بل
           <input

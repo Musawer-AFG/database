@@ -31,3 +31,16 @@
 - Payment date, notes and payment history are stored with each invoice in browser localStorage.
 - Settled invoices automatically leave the debtor list. If a customer has other unpaid sales bills, they remain listed.
 - Frontend-only demo: there is no shared database, authentication, accounting ledger, or multi-device synchronization.
+
+## Functional warehouse, payroll and report fixes
+
+- Added reusable, tested calculations in `src/business.js`, including Afghan date filters.
+- Added opening stock and default warehouse selection to the product form.
+- Warehouse dashboard now uses actual purchase, sale, return, and manual stock movement records.
+- New **ثبت حرکت گدام** modal handles stock increases, decreases and warehouse transfers.
+- New sales cannot exceed stock at the selected warehouse; deletion of a purchase bill cannot create new negative stock.
+- Added monthly salary to employee creation, a salary slip form, deductions/allowances, prevention of duplicate employee-month slips, and marking slips as paid.
+- General business report now shows real totals; journal report, account ledger, document report and trial balance now display manual journal data, with working date filters, CSV export and print.
+- Removed static placeholder zero figures in the warehouse/payroll/reports sections.
+- Nine pure calculation tests are included: `npm run test`.
+- Still frontend-only: no database, shared data, automatic accounting ledger posting, or verified production payroll rules.
