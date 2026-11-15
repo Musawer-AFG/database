@@ -62,6 +62,7 @@ import {
 import { AFGHAN_MONTHS, DEFAULT_WAREHOUSE, afghanCalendarParts, afghanDateOrder, isInAfghanRange, cash, inventoryState, findProduct, saleStockError, payrollAmounts, journalBalances, reportSummary } from "./business.js";
 import "./styles.css";
 import "./responsive.css";
+import { AFGHAN_PROVINCES, AFGHAN_FIELD_CHOICES, dateChoiceParts, buildAfghanDate } from "./afghanLocale.js";
 
 const afghanMonths = [
   "حمل",
@@ -197,7 +198,7 @@ const navigationIcons = {
 const entityConfigs = {
   products: {
     title: "محصولات",
-    description: "کا‌لاها و موجودی گدام خود را مدیریت کنید",
+    description: "اجناس و موجودی گدام خود را مدیریت کنید",
     add: "ایجاد محصول",
     fields: [
       ["code", "کد محصول"],
@@ -225,21 +226,17 @@ const entityConfigs = {
   },
   groups: {
     title: "گروه‌های محصولات",
-    description: "گروه‌های کا‌لا و تنظیمات حسابداری آن‌ها",
+    description: "گروه‌های محصولات و تنظیمات حسابداری آن‌ها",
     add: "ایجاد گروه محصول",
     fields: [
       ["name", "نام گروه"],
-      ["sstid", "شناسه فروش و خدمات"],
-      ["tax", "مالیات (%)"],
-      ["inventoryAccount", "سرفصل موجودی کا‌لا"],
+      ["inventoryAccount", "سرفصل موجودی اجناس"],
       ["salesAccount", "سرفصل درآمد"],
       ["returnAccount", "سرفصل فروش برگشتی"],
       ["cogsAccount", "موضوع بهای تمام‌شده"],
     ],
     columns: [
       ["name", "نام گروه"],
-      ["sstid", "شناسه SSTID"],
-      ["tax", "مالیات"],
       ["inventoryAccount", "سرفصل موجودی"],
       ["salesAccount", "سرفصل درآمد"],
     ],
@@ -252,10 +249,12 @@ const entityConfigs = {
       ["code", "کد حسابداری"],
       ["name", "نام مشتری"],
       ["type", "نوع"],
-      ["economicNumber", "شماره اقتصادی"],
-      ["phone", "شماره تیلفون"],
-      ["mobile", "شماره موبایل"],
-      ["group", "گروه طرف حساب"],
+      ["economicNumber", "نمبر مالیاتی (TIN) — اختیاری"],
+      ["phone", "نمبر تیلفون"],
+      ["mobile", "نمبر موبایل"],
+      ["group", "گروه مشتریان"],
+      ["province", "ولایت"],
+      ["district", "ولسوالی / ناحیه"],
       ["address", "آدرس"],
       ["notes", "یادداشت"],
     ],
@@ -263,8 +262,8 @@ const entityConfigs = {
       ["code", "کد حسابداری"],
       ["name", "نام مشتری"],
       ["type", "نوع"],
-      ["economicNumber", "شماره اقتصادی"],
-      ["phone", "شماره تیلفون"],
+      ["economicNumber", "نمبر مالیاتی (TIN)"],
+      ["phone", "نمبر تیلفون"],
       ["group", "گروه"],
       ["balance", "مانده (افغانی)"],
     ],
@@ -276,30 +275,34 @@ const entityConfigs = {
     fields: [
       ["code", "کد حسابداری"],
       ["name", "نام عرضه‌کننده"],
-      ["economicNumber", "شماره اقتصادی"],
-      ["phone", "شماره تیلفون"],
-      ["mobile", "شماره موبایل"],
-      ["group", "گروه طرف حساب"],
+      ["economicNumber", "نمبر مالیاتی (TIN) — اختیاری"],
+      ["phone", "نمبر تیلفون"],
+      ["mobile", "نمبر موبایل"],
+      ["group", "گروه عرضه‌کنندگان"],
+      ["province", "ولایت"],
+      ["district", "ولسوالی / ناحیه"],
       ["address", "آدرس"],
       ["notes", "یادداشت"],
     ],
     columns: [
       ["code", "کد"],
       ["name", "نام عرضه‌کننده"],
-      ["economicNumber", "شماره اقتصادی"],
-      ["phone", "شماره تیلفون"],
+      ["economicNumber", "نمبر مالیاتی (TIN)"],
+      ["phone", "نمبر تیلفون"],
       ["group", "گروه"],
       ["balance", "مانده (افغانی)"],
     ],
   },
   warehouses: {
     title: "گدام‌ها",
-    description: "گدام‌ها و محل نگهداری کا‌لا را مدیریت کنید",
+    description: "گدام‌ها و محل نگهداری اجناس را مدیریت کنید",
     add: "ایجاد گدام",
     fields: [
       ["code", "کد گدام"],
       ["name", "نام گدام"],
-      ["location", "موقعیت"],
+      ["province", "ولایت"],
+      ["district", "ولسوالی / ناحیه"],
+      ["location", "آدرس گدام"],
       ["manager", "مسؤول گدام"],
       ["status", "وضعیت"],
     ],
@@ -321,21 +324,23 @@ const entityConfigs = {
       ["firstName", "نام"],
       ["lastName", "تخلص"],
       ["fatherName", "نام پدر"],
-      ["tazkira", "نمبر تذکره"],
-      ["passport", "شماره پاسپورت"],
+      ["tazkira", "نمبر تذکره (کاغذی / الکترونیکی)"],
+      ["passport", "نمبر پاسپورت (اختیاری)"],
       ["gender", "جنسیت"],
       ["marital", "حالت مدنی"],
-      ["nationality", "ملیت"],
-      ["birthDate", "تاریخ تولد"],
-      ["phone", "شماره تیلفون"],
+      ["nationality", "تابعیت"],
+      ["birthDate", "تاریخ تولد (هجری شمسی)"],
+      ["phone", "نمبر تیلفون"],
+      ["province", "ولایت"],
+      ["district", "ولسوالی / ناحیه"],
       ["address", "آدرس"],
       ["unit", "واحد سازمانی"],
       ["position", "جایگاه وظیفوی"],
-      ["workshop", "کارگاه"],
+      ["workshop", "شعبه / محل کار"],
       ["shift", "شیفت کاری"],
       ["contract", "نوع قرارداد"],
-      ["startDate", "تاریخ آغاز قرارداد"],
-      ["endDate", "تاریخ ختم قرارداد"],
+      ["startDate", "تاریخ آغاز قرارداد (هجری شمسی)"],
+      ["endDate", "تاریخ ختم قرارداد (هجری شمسی)"],
       ["education", "سطح تحصیلات"],
       ["salary", "معاش ماهانه (افغانی)"],
       ["status", "وضعیت"],
@@ -644,7 +649,7 @@ function App() {
   function openPayroll(selectedYear, selectedMonth) {
     const parts = afghanCalendarParts();
     setPayrollForm({ employeeId: "", year: String(selectedYear || parts.year), month: String(selectedMonth || parts.month), base: "", bonus: "0",
-      deduction: "0", employerInsurance: "0", date: today, notes: "" });
+      deduction: "0", date: today, notes: "" });
     setModal({ type: "payroll" });
   }
   function savePayroll(e) {
@@ -654,7 +659,7 @@ function App() {
     if (!employee) { notify("کارمند را انتخاب کنید."); return; }
     const year = Number(record.year), month = Number(record.month);
     if (year < 1300 || year > 1600 || month < 1 || month > 12) { notify("ماه و سال افغانى معتبر انتخاب کنید."); return; }
-    if ([record.base, record.bonus, record.deduction, record.employerInsurance].some(v => !Number.isFinite(Number(v)) || Number(v) < 0)) {
+    if ([record.base, record.bonus, record.deduction].some(v => !Number.isFinite(Number(v)) || Number(v) < 0)) {
       notify("مبالغ معاش نباید منفی باشند."); return;
     }
     if (Number(record.deduction) > Number(record.base) + Number(record.bonus)) { notify("کسورات نمی‌تواند بیشتر از مجموع معاش باشد."); return; }
@@ -1679,7 +1684,7 @@ function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
         <input type="number" min="0.01" max={remaining} step="0.01" inputMode="decimal" autoFocus required value={form.amount} onChange={(e)=>setForm({...form,amount:e.target.value})} placeholder="مبلغ دریافتی" />
       </label>
       <label>تاریخ دریافت (هجری شمسی)
-        <input required value={form.date} onChange={(e)=>setForm({...form,date:e.target.value})}/>
+        <AfghanDatePicker required value={form.date} onChange={date=>setForm({...form,date})}/>
       </label>
     </div>
     <label className="full-label">توضیحات (اختیاری)
@@ -1957,10 +1962,7 @@ function ExpensesPage({ data, setData, notify }) {
           </label>
           <label>
             تاریخ (هجری شمسی افغانستان)
-            <input
-              value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
-            />
+            <AfghanDatePicker value={form.date} onChange={date=>setForm({...form,date})} required/>
           </label>
           <label className="wide">
             توضیحات
@@ -2005,8 +2007,8 @@ function PayrollPage({ data, onNavigate, onAdd, onPaid, onDelete }) {
   );
   const payrollTotal = rows.reduce((a,p)=> {
     const v = payrollAmounts(p);
-    return { gross: a.gross+v.gross, deduction:a.deduction+v.deduction, net:a.net+v.net, insurance:a.insurance+v.insurance };
-  }, { gross:0,deduction:0,net:0,insurance:0 });
+    return { gross: a.gross+v.gross, deduction:a.deduction+v.deduction, net:a.net+v.net };
+  }, { gross:0,deduction:0,net:0 });
   const paid = rows.filter(p => p.status === 'paid');
   return <>
     <PageHeading title="معاشات و دستمزد" description="محاسبه معاش ماهانه، ثبت کسورات و ثبت پرداخت کارمندان"
@@ -2022,7 +2024,6 @@ function PayrollPage({ data, onNavigate, onAdd, onPaid, onDelete }) {
       <StatCard label="معاش ناخالص" value={money(payrollTotal.gross)} icon={Wallet} tone="blue"/>
       <StatCard label="کسورات" value={money(payrollTotal.deduction)} icon={TrendingDown} tone="rose"/>
       <StatCard label="معاش خالص" value={money(payrollTotal.net)} icon={CircleDollarSign} tone="green"/>
-      <StatCard label="سهم بیمه کارفرما" value={money(payrollTotal.insurance)} icon={BadgeCheck} tone="violet"/>
       <StatCard label="برگه‌های معاش" value={number(rows.length)} icon={Users} tone="amber"/>
       <StatCard label="معاش پرداخت‌شده" value={money(paid.reduce((s,x)=>s+payrollAmounts(x).net,0))} icon={Activity} tone="cyan"/>
     </div>
@@ -2038,7 +2039,7 @@ function PayrollPage({ data, onNavigate, onAdd, onPaid, onDelete }) {
         </tr>})}{!rows.length && <tr className="empty-data-row"><td className="empty-table-cell" colSpan={8}><EmptyState text={data.employees.length ? 'برای این دوره برگه معاش ثبت نشده است. روی «محاسبه معاش» بزنید.' : 'ابتدا کارمند ثبت کنید و معاش ماهانه او را وارد نمایید.'}/></td></tr>}</tbody>
       </table></div>
     </Panel>
-    <p className="info-note">این نسخه برای نمایش روند معاشات است. محاسبه مالیات، قوانین کار، بیمه و کسورات قانونی افغانستان به صورت خودکار پیاده‌سازی نشده است.</p>
+    <p className="info-note">این نسخه صرف برای نمایش معاشات است. محاسبه کسورات مطابق قوانین افغانستان به‌صورت خودکار فعال نیست.</p>
   </>;
 }
 function AttendancePage({ data }) {
@@ -2157,8 +2158,8 @@ function ReportsPage({ page, data }) {
       <button className="btn secondary" onClick={()=>window.print()}><Printer size={15}/> چاپ گزارش</button></>}/>
     <Panel title="فلتر گزارش">
       <form className="report-filter" onSubmit={saveFilter}>
-        <label>تاریخ شروع (هجری شمسی)<input value={filter.from} onChange={e=>setFilter({...filter,from:e.target.value})} placeholder="1405/01/01"/></label>
-        <label>تاریخ پایان (هجری شمسی)<input value={filter.to} onChange={e=>setFilter({...filter,to:e.target.value})} placeholder="1405/12/29"/></label>
+        <label>تاریخ شروع (هجری شمسی)<AfghanDatePicker value={filter.from} onChange={date=>setFilter({...filter,from:date})}/></label>
+        <label>تاریخ پایان (هجری شمسی)<AfghanDatePicker value={filter.to} onChange={date=>setFilter({...filter,to:date})}/></label>
         {page==='ledgerReport' && <label>سرفصل حساب<select value={accountFilter} onChange={e=>setAccountFilter(e.target.value)}><option value="all">همه سرفصل‌ها</option>{ledgerAccounts.map(name=><option key={name}>{name}</option>)}</select></label>}
         {page!=='reports' && <><label>شماره شروع سند<input type="number" min="1" value={filter.min} onChange={e=>setFilter({...filter,min:e.target.value})} placeholder="از شماره"/></label>
           <label>شماره پایان سند<input type="number" min="1" value={filter.max} onChange={e=>setFilter({...filter,max:e.target.value})} placeholder="تا شماره"/></label></>}
@@ -2252,7 +2253,7 @@ function StockMovementForm({data, form, setForm, onSubmit, onCancel}) {
         <option value="">محصول را انتخاب کنید</option>{data.products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       {form.kind==='transfer' ? <>{whSelect('fromWarehouseId','از گدام')}{whSelect('toWarehouseId','به گدام')}</> : whSelect('warehouseId','گدام')}
       <label>تعداد<input type="number" min="0.01" step="any" required value={form.quantity} onChange={e=>update('quantity',e.target.value)}/></label>
-      <label>تاریخ (هجری شمسی افغانستان)<input value={form.date} onChange={e=>update('date',e.target.value)} required/></label>
+      <label>تاریخ (هجری شمسی افغانستان)<AfghanDatePicker value={form.date} onChange={date=>update('date',date)} required/></label>
       <label className="wide">دلیل / توضیحات<textarea rows={2} value={form.notes} onChange={e=>update('notes',e.target.value)} placeholder="مثلاً: شمارش موجودی یا انتقال میان گدام‌ها"/></label>
     </div>
     {form.productId && <p className="info-note">موجودی فعلی در گدام مبدأ: <strong>{number(stock.get(form.productId,origin))}</strong></p>}
@@ -2274,14 +2275,49 @@ function PayrollForm({data,form,setForm,onSubmit,onCancel}) {
       <label>معاش اصلی (افغانی)<input type="number" min="0" step="any" value={form.base||''} onChange={e=>update('base',e.target.value)} required/></label>
       <label>اضافه‌کاری و امتیازات<input type="number" min="0" step="any" value={form.bonus ?? 0} onChange={e=>update('bonus',e.target.value)}/></label>
       <label>کسورات<input type="number" min="0" step="any" value={form.deduction ?? 0} onChange={e=>update('deduction',e.target.value)}/></label>
-      <label>بیمه کارفرما (در صورت نیاز)<input type="number" min="0" step="any" value={form.employerInsurance ?? 0} onChange={e=>update('employerInsurance',e.target.value)}/></label>
-      <label>تاریخ صدور<input value={form.date} onChange={e=>update('date',e.target.value)}/></label>
+      <label>تاریخ صدور (هجری شمسی)<AfghanDatePicker value={form.date} onChange={date=>update('date',date)} required/></label>
       <label className="wide">یادداشت<textarea value={form.notes||''} onChange={e=>update('notes',e.target.value)} rows={2}/></label>
     </div>
     <div className="payment-summary-grid"><div className="payment-summary-item"><span>ناخالص</span><strong>{money(total.gross)}</strong></div>
       <div className="payment-summary-item"><span>خالص قابل پرداخت</span><strong>{money(total.net)}</strong></div></div>
     <div className="modal-actions"><button type="button" className="btn secondary" onClick={onCancel}>لغو</button><button type="submit" className="btn primary"><Save size={16}/> ثبت برگه معاش</button></div>
   </form>;
+}
+
+function AfghanDatePicker({value='', onChange, required=false}) {
+  const selected = dateChoiceParts(value);
+  const now = afghanCalendarParts();
+  const update = (part, choice) => {
+    if (choice === '') { onChange(''); return; }
+    const next = {
+      year: selected?.year || now.year,
+      month: selected?.month || now.month,
+      day: selected?.day || now.day,
+      [part]: Number(choice)
+    };
+    onChange(buildAfghanDate(next));
+  };
+  const days = selected?.month > 6 ? 30 : 31;
+  return <div className="afghan-date-picker" role="group" aria-label="تاریخ هجری شمسی افغانستان">
+    <select aria-label="روز" value={selected?.day || ''} onChange={e=>update('day',e.target.value)} required={required}>
+      <option value="">روز</option>{Array.from({length:days},(_,i)=><option key={i+1} value={i+1}>{number(i+1)}</option>)}
+    </select>
+    <select aria-label="ماه افغانی" value={selected?.month || ''} onChange={e=>update('month',e.target.value)} required={required}>
+      <option value="">ماه</option>{AFGHAN_MONTHS.map((name,i)=><option key={name} value={i+1}>{name}</option>)}
+    </select>
+    <select aria-label="سال هجری شمسی" value={selected?.year || ''} onChange={e=>update('year',e.target.value)} required={required}>
+      <option value="">سال</option>{Array.from({length:105},(_,i)=>now.year + 5-i).map(y=><option value={y} key={y}>{number(y)}</option>)}
+    </select>
+  </div>;
+}
+
+function choicesForField(config,key) {
+  if (key === 'type') {
+    if (config.title === 'مشتریان') return AFGHAN_FIELD_CHOICES.customerType;
+    if (config.title === 'سرفصل‌های حساب') return AFGHAN_FIELD_CHOICES.accountType;
+    return null;
+  }
+  return AFGHAN_FIELD_CHOICES[key] || null;
 }
 
 function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
@@ -2294,7 +2330,13 @@ function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
             {key === "warehouseId" ? <select value={form.warehouseId || DEFAULT_WAREHOUSE} onChange={e => setForm({ ...form, warehouseId: e.target.value })}>
               <option value={DEFAULT_WAREHOUSE}>گدام عمومی</option>
               {data.warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select> : ["notes", "address"].includes(key) ? (
+            </select> : key === "province" ? <select value={form.province || ''} onChange={e=>setForm({...form,province:e.target.value})}>
+              <option value="">ولایت را انتخاب کنید</option>
+              {AFGHAN_PROVINCES.map(name=><option key={name} value={name}>{name}</option>)}
+            </select> : choicesForField(config,key) ? <select value={form[key] || ''} onChange={e=>setForm({...form,[key]:e.target.value})}>
+              <option value="">انتخاب کنید</option>
+              {choicesForField(config,key).map(name=><option key={name} value={name}>{name}</option>)}
+            </select> : ['birthDate','startDate','endDate'].includes(key) ? <AfghanDatePicker value={form[key] || ''} onChange={date=>setForm({...form,[key]:date})}/> : ["notes", "address"].includes(key) ? (
               <textarea
                 rows="2"
                 value={form[key] || ""}
@@ -2315,6 +2357,8 @@ function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
                     ? "number"
                     : "text"
                 }
+                inputMode={['phone','mobile'].includes(key) ? 'tel' : undefined}
+                placeholder={['phone','mobile'].includes(key) ? '07xxxxxxxx یا +93 7xxxxxxxx' : key === 'tazkira' ? 'نمبر تذکره' : key === 'unit' ? 'مثلاً: بوری، کارتن، کیلوگرام' : key === 'economicNumber' ? 'اختیاری' : undefined}
                 value={form[key] ?? ""}
                 onChange={(e) => setForm({ ...form, [key]: e.target.value })}
               />
@@ -2392,10 +2436,7 @@ function InvoiceForm({
         </label>
         <label>
           تاریخ (هجری شمسی افغانستان)
-          <input
-            value={form.date}
-            onChange={(e) => setForm({ ...form, date: e.target.value })}
-          />
+          <AfghanDatePicker value={form.date} onChange={date=>setForm({...form,date})} required/>
         </label>
         <label>
           مبلغ پرداخت‌شده (افغانی)
@@ -2541,11 +2582,8 @@ function JournalForm({ form, setForm, items, setItems, onSubmit, onCancel }) {
           />
         </label>
         <label>
-          تاریخ
-          <input
-            value={form.date}
-            onChange={(e) => setForm({ ...form, date: e.target.value })}
-          />
+          تاریخ (هجری شمسی افغانستان)
+          <AfghanDatePicker value={form.date} onChange={date=>setForm({...form,date})} required/>
         </label>
       </div>
       <div className="invoice-lines">

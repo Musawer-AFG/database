@@ -422,3 +422,17 @@ td { font-size: 13px; }
 .monthly-bars .sales-bar{background:#9d5dad}
 .monthly-bars .expense-bar{background:#e8a5c3}
 @media(max-width:460px){.monthly-row{grid-template-columns:48px minmax(0,1fr) 85px;gap:8px}.monthly-row>strong{font-size:10px}}
+
+/* Afghan Solar Hijri date picker, designed for small phones */
+.afghan-date-picker{
+  width:100%;max-width:100%;display:grid;grid-template-columns:minmax(68px,.7fr) minmax(92px,1.15fr) minmax(82px,.9fr);
+  gap:7px;direction:rtl;min-width:0;
+}
+.afghan-date-picker select{
+  width:100%;min-width:0;max-width:100%;min-height:44px;font-size:14px;
+  padding-inline:7px;text-align:center;text-align-last:center;
+}
+@media(max-width:400px){
+  .afghan-date-picker{grid-template-columns:minmax(0,.8fr) minmax(0,1.25fr) minmax(0,.95fr);gap:5px}
+  .afghan-date-picker select{padding-inline:2px;font-size:13px}
+}

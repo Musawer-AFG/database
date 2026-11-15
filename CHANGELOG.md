@@ -44,3 +44,11 @@
 - Removed static placeholder zero figures in the warehouse/payroll/reports sections.
 - Nine pure calculation tests are included: `npm run test`.
 - Still frontend-only: no database, shared data, automatic accounting ledger posting, or verified production payroll rules.
+
+## Afghan-specific forms and calendars
+- Localized customer/supplier/employee/warehouse input labels and choices to Afghanistan.
+- Added all 34 provinces and district/neighborhood fields.
+- Changed customer/supplier business-tax field label to optional Afghan TIN, preserving the old stored data key.
+- Added Afghan day-month-year selector to invoices, customer collections, salaries, expenses, journals, inventory transfers, report date filters, and employee dates.
+- Removed Iranian-style product-group electronic tax classification and the employer-insurance UI (kept product SSTID and product tax).
+- Preserved previous right-sidebar, responsive mobile layout, bank-account removal, payments, inventory, salary and report functionality.

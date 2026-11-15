@@ -93,3 +93,7 @@ npm run test
 ```
 
 These tests verify the calculation helpers. They do not replace browser-level or production end-to-end testing.
+
+## Afghanistan-localized form fields
+
+See `AFGHAN_LOCALIZATION.md` for changes to TIN, Tazkira, provinces, districts, Afghan Solar Hijri date pickers and payroll fields. This is an update to the existing frontend project, not a separate database implementation.
