@@ -78,6 +78,8 @@ import { quickSearch, transactionsForDay } from "./headerTools.js";
 import { employeeAccess, effectiveDemoAccess, kabulLocalDateTime, normalizeScheduleFields, validAfghanDateTime, validShiftTime } from "./workHours.js";
 import { CURRENCIES, CURRENCY_LABELS, DEFAULT_RATES, normalizeRates, currencyRate, toAfn, fromAfn, roundMoney, convertInvoiceToAfn } from "./exchange.js";
 import { FRESH_STORAGE_KEYS, validateFirstSetup, clearFreshStorage } from "./freshSetup.js";
+import { readBusinessLogo, safeBusinessLogo } from "./businessLogo.js";
+import { describeSettingsChanges, DESTRUCTIVE_SETTINGS_ACTIONS } from "./settingsSecurity.js";
 
 const afghanMonths = [
   "حمل",
@@ -435,6 +437,7 @@ function loadInitial() {
 
 const defaultPreferences = () => ({
   shopName: "عمده فروشی",
+  shopLogo: "",
   fiscalYear: afghanCalendarParts().year,
   userName: "حسابدار",
   userTitle: "مدیر سیستم",
@@ -447,6 +450,7 @@ function loadPreferences() {
     return {
       ...defaults,
       shopName: String(stored.shopName || defaults.shopName),
+      shopLogo: safeBusinessLogo(stored.shopLogo),
       fiscalYear: Number(stored.fiscalYear) >= 1300 && Number(stored.fiscalYear) <= 1600 ? Number(stored.fiscalYear) : defaults.fiscalYear,
       userName: String(stored.userName || defaults.userName),
       userTitle: String(stored.userTitle || defaults.userTitle),
@@ -481,6 +485,7 @@ function App() {
     try { return sessionStorage.getItem(FRESH_STORAGE_KEYS.session) || null; } catch { return null; }
   });
   const [previewUserId, setPreviewUserId] = useState(null);
+  const [settingsChallenge, setSettingsChallenge] = useState(null);
   const demoLoginEnabled=!!access.users.find(u=>u.id==='admin-user')?.passwordHash;
   const signedInUser=demoLoginEnabled ? access.users.find(u=>u.id===sessionUserId && u.active!==false && u.passwordHash) : access.users[0];
   const needsLogin=demoLoginEnabled && !signedInUser;
@@ -581,27 +586,92 @@ function App() {
     setMobileMenu(false);
   };
   const notify = (message) => setToast(message);
-  const changeFiscalYear = (year) => {
-    const target=Number(year);
-    if(target === preferences.fiscalYear) return true;
-    if (!requirePermission("settings.manage")) return false;
-    if (financialYearRecordCount(data,target)===0) {
-      notify(`برای سال مالی ${number(target)} معلوماتی موجود نیست. سال قبلی تغییر نکرد.`);
+  // Every settings mutation needs a fresh password challenge. Unsaved form edits
+  // remain local to the form until the administrator explicitly approves them.
+  const requestSettingsConfirmation = (action) => {
+    if (!requirePermission('settings.manage')) return false;
+    if (!signedInUser?.passwordHash || previewUserId) {
+      notify('برای تغییر تنظیمات با حساب خود وارد شوید.');
       return false;
     }
-    setPreferences(previous=>({...previous,fiscalYear:target}));
-    notify(`سال مالی ${number(target)} انتخاب شد.`);
+    setSettingsChallenge(action);
     return true;
+  };
+  const verifyAndApplySettings = async (password) => {
+    const action=settingsChallenge;
+    const currentAccount=access.users.find(user=>user.id===signedInUser?.id && user.active!==false);
+    if (!action || !currentAccount || !can('settings.manage') || previewUserId) {
+      return {ok:false,message:'اجازهٔ تغییر تنظیمات موجود نیست. دوباره وارد شوید.'};
+    }
+    try {
+      if (!(await verifyDemoCredential(password,currentAccount))) {
+        return {ok:false,message:'رمز ورود اشتباه است. تغییرات اجرا نشد.'};
+      }
+      // Recheck that the signed-in user has not changed during verification.
+      if (sessionUserId!==currentAccount.id || !can('settings.manage')) {
+        return {ok:false,message:'نشست کاربری تغییر کرده است. دوباره وارد شوید.'};
+      }
+      // Close first, then apply the authorized operation (which may reload).
+      setSettingsChallenge(null);
+      action.onConfirmed();
+      return {ok:true};
+    } catch(error) {
+      return {ok:false,message:error?.message||'انجام عملیات ممکن نشد.'};
+    }
+  };
+  const changeFiscalYear = (year) => {
+    const target=Number(year);
+    if(target === preferences.fiscalYear) return;
+    if (!requirePermission('settings.manage')) return;
+    if (financialYearRecordCount(data,target)===0) {
+      notify(`برای سال مالی ${number(target)} معلوماتی موجود نیست. سال قبلی تغییر نکرد.`);
+      return;
+    }
+    requestSettingsConfirmation({
+      title:'تأیید تغییر سال مالی',
+      details:[`سال مالی از ${number(preferences.fiscalYear)} به ${number(target)} تغییر می‌کند.`, 'این تغییر بر نمایش گزارش‌های سالانه و داشبورد اثر دارد.'],
+      onConfirmed:()=>{
+        setPreferences(previous=>({...previous,fiscalYear:target}));
+        setSidebarPopup('');
+        if(canView('dashboard')) setCurrentPage('dashboard');
+        notify(`سال مالی ${number(target)} انتخاب شد.`);
+      },
+    });
   };
   const savePreferences = (changes) => {
-    if (!requirePermission("settings.manage")) return false;
-    if (changes.fiscalYear != null && Number(changes.fiscalYear) !== preferences.fiscalYear) {
-      if (!changeFiscalYear(changes.fiscalYear)) return false;
+    if (!requirePermission('settings.manage')) return false;
+    if (changes.fiscalYear != null && Number(changes.fiscalYear) !== preferences.fiscalYear &&
+        financialYearRecordCount(data,Number(changes.fiscalYear))===0) {
+      notify(`برای سال مالی ${number(changes.fiscalYear)} معلوماتی موجود نیست. سال قبلی تغییر نکرد.`);
+      return false;
     }
-    setPreferences(previous => ({...previous, ...changes}));
-    notify("تنظیمات ذخیره شد.");
-    return true;
+    const details=describeSettingsChanges(preferences,changes);
+    if(!details.length) {notify('هیچ تغییری برای ذخیره وجود ندارد.');return true;}
+    return requestSettingsConfirmation({
+      title:'تأیید ذخیره تنظیمات',
+      details,
+      onConfirmed:()=>{
+        setPreferences(previous=>({...previous,...changes}));
+        notify('تنظیمات بعد از تأیید رمز ذخیره شد.');
+      },
+    });
   };
+  const clearTransactionsProtected = () => requestSettingsConfirmation({
+    ...DESTRUCTIVE_SETTINGS_ACTIONS.clearTransactions,
+    destructive:true,
+    onConfirmed:()=>{
+      localStorage.removeItem(FRESH_STORAGE_KEYS.data);
+      window.location.reload();
+    },
+  });
+  const resetBusinessProtected = () => requestSettingsConfirmation({
+    ...DESTRUCTIVE_SETTINGS_ACTIONS.resetBusiness,
+    destructive:true,
+    onConfirmed:()=>{
+      clearFreshStorage(localStorage,sessionStorage);
+      window.location.reload();
+    },
+  });
   const saveProfile = (changes) => {
     if(!requirePermission('profile.edit')) return false;
     setAccess(prev=>({...prev, users:prev.users.map(u=>u.id===activeUserId?{...u,name:String(changes.userName||u.name),title:String(changes.userTitle||u.title)}:u)}));
@@ -647,7 +717,7 @@ function App() {
         const shopName=String(initialProfile.shopName||'').trim().slice(0,90);
         if(!adminName || !shopName) throw Error('نام فروشگاه و نام مدیر ضروری است.');
         next={...next,users:next.users.map(u=>u.id==='admin-user'?{...u,name:adminName,title:'مدیر سیستم'}:u)};
-        setPreferences(prev=>({...prev,shopName,userName:adminName,userTitle:'مدیر سیستم'}));
+        setPreferences(prev=>({...prev,shopName,shopLogo:safeBusinessLogo(initialProfile.shopLogo),userName:adminName,userTitle:'مدیر سیستم'}));
       }
       const recoveryCode=createRecoveryCode();
       const record=await createRecoveryRecord(recoveryCode,{days:365});
@@ -1115,7 +1185,7 @@ function App() {
     if (page === "attendance") return <AttendancePage data={data} />;
     if (["reports", "trialBalance", "journalReport", "ledgerReport", "documentReport"].includes(page))
       return <ReportsPage page={page} data={data} />;
-    if (page === "settings") return <SettingsPage preferences={preferences} years={years} data={data} onSave={savePreferences} canManage={can('settings.manage')} />;
+    if (page === "settings") return <SettingsPage preferences={preferences} years={years} data={data} onSave={savePreferences} onClearTransactions={clearTransactionsProtected} onResetBusiness={resetBusinessProtected} canManage={can('settings.manage')} />;
     if (page === "roles") return <RolesPage access={access} employees={data.employees} demoLoginEnabled={demoLoginEnabled} onActivateDemoLogin={activateDemoLogin} onIssueRecovery={issueRecovery} onSaveRole={saveRole} onDeleteRole={deleteRole} onSaveUser={saveUser} onDeleteUser={deleteUser} onPreviewUser={previewAs} />;
     if (page === "profile") return <ProfilePage preferences={{...preferences,userName:activeUser.name,userTitle:activeUser.title}} onSave={saveProfile} onNavigate={setCurrentPage} canEdit={can('profile.edit')} roleName={activeRole?.name||''} />;
     if (page === "help") return <HelpPage onNavigate={setCurrentPage} canView={canView} />;
@@ -1146,11 +1216,15 @@ function App() {
     >
       <aside className="sidebar" dir="rtl" aria-label="منوی اصلی">
         <div className="sidebar-brand">
-          <div className="brand-mark" aria-hidden="true"><span className="brand-initial">{preferences.shopName.trim().charAt(0) || "ع"}</span></div>
-          <div className="brand-text">
-            <strong title={preferences.shopName}>{preferences.shopName}</strong>
-            <small>سامانه مدیریت تجارت</small>
-          </div>
+          <button type="button" className="sidebar-brand-home" onClick={() => setCurrentPage("dashboard")} title="بازگشت به صفحه اصلی" aria-label={`بازگشت به صفحه اصلی — ${preferences.shopName}`}>
+            <div className="brand-mark" aria-hidden="true">
+              {preferences.shopLogo ? <img src={preferences.shopLogo} className="sidebar-brand-image" alt="" /> : <span className="brand-initial">{preferences.shopName.trim().charAt(0) || "ع"}</span>}
+            </div>
+            <div className="brand-text">
+              <strong title={preferences.shopName}>{preferences.shopName}</strong>
+              <small>سامانه مدیریت تجارت</small>
+            </div>
+          </button>
           <button
             className="icon-btn sidebar-close"
             onClick={() => setMobileMenu(false)}
@@ -1180,12 +1254,7 @@ function App() {
               id="sidebar-fiscal-year"
               disabled={!can('settings.manage')}
               value={preferences.fiscalYear}
-              onChange={event => {
-                if(changeFiscalYear(Number(event.target.value))) {
-                  setSidebarPopup("");
-                  if(canView('dashboard')) setCurrentPage("dashboard");
-                }
-              }}
+              onChange={event => changeFiscalYear(Number(event.target.value))}
             >
               {years.map(year => <option value={year} key={year}>{number(year)} {year !== preferences.fiscalYear && !financialYearRecordCount(data,year) ? '— بدون معلومات' : ''}</option>)}
             </select>
@@ -1376,6 +1445,11 @@ function App() {
           {toast}
         </div>
       )}
+      {settingsChallenge && <SettingsPasswordDialog
+        challenge={settingsChallenge}
+        onCancel={()=>setSettingsChallenge(null)}
+        onApprove={verifyAndApplySettings}
+      />}
       {modal && (
         <Modal
           title={
@@ -2828,8 +2902,36 @@ function AfghanHeaderCalendar({data,todayLabel,canView,onNavigate,onClose}) {
   </div>;
 }
 
+function BusinessLogoPicker({logo,shopName,onChange,disabled=false,onBusyChange,inputId}) {
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const upload=async event=>{
+    const file=event.target.files?.[0];
+    event.target.value='';
+    if(!file)return;
+    setError('');setBusy(true);onBusyChange?.(true);
+    try {onChange(await readBusinessLogo(file));}
+    catch(err) {setError(err?.message || 'بارگذاری عکس انجام نشد.');}
+    finally {setBusy(false);onBusyChange?.(false);}
+  };
+  return <div className="business-logo-picker">
+    <div className="business-logo-preview" aria-hidden="true">
+      {logo ? <img src={logo} alt="" /> : <span>{shopName.trim().charAt(0)||'ع'}</span>}
+    </div>
+    <div className="business-logo-picker-controls">
+      <label htmlFor={inputId}>لوگو یا عکس عمده‌فروشی (اختیاری)</label>
+      <input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" disabled={busy||disabled} onChange={upload}/>
+      <small>{busy?'در حال آماده‌سازی عکس...':'عکس JPG، PNG یا WebP؛ حداکثر ۵ MB. عکس برای منو کوچک و فشرده می‌شود.'}</small>
+      {logo && !disabled && <button className="btn secondary business-logo-remove" type="button" disabled={busy} onClick={()=>{setError('');onChange('');}}>حذف عکس</button>}
+      {error && <p className="form-error" role="alert">{error}</p>}
+    </div>
+  </div>;
+}
+
 function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
   const [businessName,setBusinessName]=useState('');
+  const [shopLogo,setShopLogo]=useState('');
+  const [logoBusy,setLogoBusy]=useState(false);
   const [adminName,setAdminName]=useState('');
   const [username,setUsername]=useState('admin');
   const [password,setPassword]=useState('');
@@ -2839,11 +2941,12 @@ function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
   const [busy,setBusy]=useState(false);
   const submit=async event=>{
     event.preventDefault();setMessage('');
+    if(logoBusy){setMessage('لطفاً منتظر آماده‌شدن عکس بمانید.');return;}
     const first=validateFirstSetup({shopName:businessName,adminName,username,password,confirmPassword:confirm});
     if(!first.ok){setMessage(first.message);return;}
     setBusy(true);
     try {
-      const result=await onSetup(first.username,password,first.profile);
+      const result=await onSetup(first.username,password,{...first.profile,shopLogo});
       if(!result?.ok)setMessage(result?.message||'ساخت حساب مدیر انجام نشد.');
     } catch {setMessage('ساخت حساب مدیر انجام نشد.');}
     finally {setBusy(false);}
@@ -2863,12 +2966,13 @@ function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
       <p>ابتدا نام عمده‌فروشی و حساب مدیر سیستم را بسازید. برنامه با ریکاردهای خالی آغاز می‌شود.</p>
       <form className="demo-login-form" onSubmit={submit}>
         <label>نام عمده‌فروشی<input autoFocus required maxLength={90} value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="مثلاً: عمده‌فروشی کابل"/></label>
+        <BusinessLogoPicker inputId="new-business-logo" logo={shopLogo} shopName={businessName} onChange={setShopLogo} onBusyChange={setLogoBusy}/>
         <label>نام و تخلص مدیر<input required maxLength={80} value={adminName} onChange={e=>setAdminName(e.target.value)} placeholder="نام مدیر سیستم"/></label>
         <label>نام کاربری مدیر<input dir="ltr" required value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} autoComplete="username"/></label>
         <label>رمز مدیر<div className="login-password-control"><input dir="ltr" required type={showPassword?'text':'password'} minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="حداقل ۸ حرف یا عدد"/><button className="password-eye" type="button" onClick={()=>setShowPassword(x=>!x)} aria-label={showPassword?'پنهان کردن رمز':'نمایش رمز'}>{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></label>
         <label>تکرار رمز<input dir="ltr" required type={showPassword?'text':'password'} minLength={8} autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>
         {message&&<p className="form-error" role="alert">{message}</p>}
-        <button type="submit" className="btn primary" disabled={busy}><ShieldCheck size={17}/>{busy?'در حال ساخت...':'ساخت حساب مدیر'}</button>
+        <button type="submit" className="btn primary" disabled={busy||logoBusy}><ShieldCheck size={17}/>{busy?'در حال ساخت...':'ساخت حساب مدیر'}</button>
       </form>
     </>}
   </div></div>;
@@ -2966,21 +3070,67 @@ function DemoChangePasswordScreen({shopName,user,onChangePassword}) {
   </div></div>;
 }
 
-function SettingsPage({ preferences, years, data, onSave, canManage=true }) {
+function SettingsPasswordDialog({challenge,onCancel,onApprove}) {
+  const [password,setPassword]=useState('');
+  const [visible,setVisible]=useState(false);
+  const [acknowledged,setAcknowledged]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const handleSubmit=async (event)=>{
+    event.preventDefault();
+    if(busy || (challenge.destructive && !acknowledged)) return;
+    setBusy(true);setError('');
+    try {
+      const result=await onApprove(password);
+      if(!result?.ok){setError(result?.message||'رمز تأیید نشد.');setPassword('');}
+    } catch(err){setError(err?.message||'خطا در بررسی رمز.');setPassword('');}
+    finally {setBusy(false);}
+  };
+  return <div className="settings-password-backdrop" dir="rtl" role="presentation">
+    <section className="settings-password-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-confirm-title" aria-describedby="settings-confirm-description">
+      <div className="settings-password-heading"><span className="settings-password-icon"><LockKeyhole size={22}/></span><div>
+        <h2 id="settings-confirm-title">{challenge.title}</h2>
+        <p id="settings-confirm-description">توجه! شما می‌خواهید عملیات زیر را انجام دهید. پیش از اجرا، رمز حساب خود را تأیید کنید.</p>
+      </div></div>
+      <ul className={challenge.destructive?'settings-changes-list settings-danger-list':'settings-changes-list'}>
+        {(challenge.details||[]).map((detail,i)=><li key={i}>{detail}</li>)}
+      </ul>
+      <form onSubmit={handleSubmit} autoComplete="off">
+        <label className="settings-password-field">رمز ورود فعلی
+          <span className="settings-password-input"><input required autoFocus dir="ltr" type={visible?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" placeholder="رمز حساب را وارد کنید" />
+            <button type="button" title={visible?'پنهان کردن رمز':'نمایش رمز'} aria-label={visible?'پنهان کردن رمز':'نمایش رمز'} onClick={()=>setVisible(v=>!v)}>{visible?<EyeOff size={18}/>:<Eye size={18}/>}</button>
+          </span>
+        </label>
+        {challenge.destructive && <label className="settings-danger-ack"><input type="checkbox" checked={acknowledged} onChange={e=>setAcknowledged(e.target.checked)}/> می‌دانم این کار برگشت‌پذیر نیست و مسئولیت پاک‌شدن معلومات را می‌پذیرم.</label>}
+        {error && <p role="alert" className="form-error">{error}</p>}
+        <div className="settings-password-actions">
+          <button type="button" className="btn secondary" disabled={busy} onClick={onCancel}>انصراف</button>
+          <button type="submit" className={`btn ${challenge.destructive?'settings-confirm-danger':'primary'}`} disabled={busy || !password || (challenge.destructive&&!acknowledged)}>
+            <LockKeyhole size={16}/> {busy?'در حال بررسی...':challenge.destructive?'تأیید رمز و اجرای عملیات':'تأیید رمز و ذخیره'}
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>;
+}
+
+function SettingsPage({ preferences, years, data, onSave, onClearTransactions, onResetBusiness, canManage=true }) {
   const [shopName, setShopName] = useState(preferences.shopName);
+  const [shopLogo,setShopLogo] = useState(preferences.shopLogo||'');
+  const [logoBusy,setLogoBusy]=useState(false);
   const [fiscalYear, setFiscalYear] = useState(preferences.fiscalYear);
   const [rates,setRates]=useState(()=>({...normalizeRates(preferences.rates)}));
   const [rateError,setRateError]=useState('');
-  useEffect(() => { setShopName(preferences.shopName); setFiscalYear(preferences.fiscalYear); setRates({...normalizeRates(preferences.rates)}); }, [preferences.shopName, preferences.fiscalYear,preferences.rates]);
+  useEffect(() => { setShopName(preferences.shopName); setShopLogo(preferences.shopLogo||''); setFiscalYear(preferences.fiscalYear); setRates({...normalizeRates(preferences.rates)}); }, [preferences.shopName, preferences.shopLogo, preferences.fiscalYear,preferences.rates]);
   const save = event => {
     event.preventDefault();
     const name = shopName.trim();
-    if (!name) return;
+    if (!name || logoBusy) return;
     setRateError('');
     if(['USD','PKR'].some(code=>!Number.isFinite(Number(rates[code])) || Number(rates[code])<0 || Number(rates[code])>1000000)){
       setRateError('نرخ ارز باید عدد معتبر باشد. نرخ صفر یعنی این ارز هنوز فعال نیست.');return;
     }
-    if(!onSave({shopName:name.slice(0,90), fiscalYear:Number(fiscalYear),rates:normalizeRates(rates)})) setFiscalYear(preferences.fiscalYear);
+    if(!onSave({shopName:name.slice(0,90), shopLogo:safeBusinessLogo(shopLogo), fiscalYear:Number(fiscalYear),rates:normalizeRates(rates)})) setFiscalYear(preferences.fiscalYear);
   };
   return <>
     <PageHeading title="تنظیمات" description="نام عمده‌فروشی و سال مالی را تنظیم کنید" />
@@ -2990,6 +3140,7 @@ function SettingsPage({ preferences, years, data, onSave, canManage=true }) {
           <input type="text" required disabled={!canManage} maxLength={90} value={shopName} onChange={event=>setShopName(event.target.value)} placeholder="نام فروشگاه یا شرکت شما" />
           <small>این نام در بالای منوی سمت راست و پایین برنامه نمایش داده می‌شود.</small>
         </label>
+        <BusinessLogoPicker inputId="settings-business-logo" logo={shopLogo} shopName={shopName} onChange={setShopLogo} onBusyChange={setLogoBusy} disabled={!canManage}/>
         <label>سال مالی
           <select disabled={!canManage} value={fiscalYear} onChange={event=>setFiscalYear(Number(event.target.value))}>
             {years.map(year=><option key={year} value={year}>{number(year)}{year !== preferences.fiscalYear && !financialYearRecordCount(data,year) ? ' — بدون معلومات' : ''}</option>)}
@@ -3006,7 +3157,7 @@ function SettingsPage({ preferences, years, data, onSave, canManage=true }) {
           <small>نرخ صفر یا خالی: استفاده از آن ارز تا درج نرخ ممکن نیست. برنامه خودش نرخ بازار را دریافت نمی‌کند.</small>
         </div>
         {rateError&&<p role="alert" className="form-error">{rateError}</p>}
-        {canManage && <div className="business-settings-actions"><button className="btn primary" type="submit"><Save size={17}/> ذخیره تنظیمات و نرخ‌ها</button></div>}
+        {canManage && <div className="business-settings-actions"><button className="btn primary" type="submit" disabled={logoBusy}><Save size={17}/> ذخیره تنظیمات و نرخ‌ها</button></div>}
       </form>
     </Panel>
     <Panel title="زبان و نمایش">
@@ -3018,21 +3169,10 @@ function SettingsPage({ preferences, years, data, onSave, canManage=true }) {
       </div>
     </Panel>
     {canManage && <Panel title="مدیریت معلومات">
-      <p className="settings-muted-info">پاک‌کردن معاملات، معلومات حساب مدیر و نام عمده‌فروشی را حفظ می‌کند.</p>
-      <button className="btn secondary" type="button" onClick={() => {
-        if (window.confirm("تمام معاملات ثبت‌شده از این مرورگر پاک شوند؟")) {
-          localStorage.removeItem(FRESH_STORAGE_KEYS.data);
-          window.location.reload();
-        }
-      }}><RotateCcw size={16}/> پاک‌کردن معاملات</button>
-      <p className="settings-muted-info">راه‌اندازی دوباره تمام معلومات این نسخه، به شمول حساب‌ها و معاملات را پاک می‌کند و صفحهٔ ساخت مدیر را باز می‌کند.</p>
-      <button className="btn secondary" type="button" onClick={() => {
-        if (window.confirm('تمام معاملات، حساب‌ها و تنظیمات این نسخه حذف و برنامه از نو راه‌اندازی شود؟') &&
-            window.confirm('تأیید نهایی: این کار قابل برگشت نیست. ادامه می‌دهید؟')) {
-          clearFreshStorage(localStorage,sessionStorage);
-          window.location.reload();
-        }
-      }}><RotateCcw size={16}/> راه‌اندازی دوباره از صفر</button>
+      <p className="settings-muted-info">پاک‌کردن معاملات، معلومات حساب مدیر و نام عمده‌فروشی را حفظ می‌کند. برای این کار تأیید رمز ضروری است.</p>
+      <button className="btn secondary" type="button" onClick={onClearTransactions}><RotateCcw size={16}/> پاک‌کردن معاملات</button>
+      <p className="settings-muted-info">راه‌اندازی دوباره تمام معلومات این نسخه، به شمول حساب‌ها و معاملات را پاک می‌کند. قبل از آن باید پیام را خوانده و رمز را وارد کنید.</p>
+      <button className="btn secondary" type="button" onClick={onResetBusiness}><RotateCcw size={16}/> راه‌اندازی دوباره از صفر</button>
     </Panel>}
   </>;
 }

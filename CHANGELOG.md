@@ -105,3 +105,16 @@
 - Reset previously granted extra access when start/end time changes.
 - Recheck browser session every 5 seconds and after visibility/focus, and synchronize access changes across browser tabs.
 - Added regression tests and user instructions.
+
+## 2026-11-16 — لوگوی عمده‌فروشی و بازگشت به داشبورد
+- در مرحلهٔ ساخت حساب مدیر می‌توان عکس اختیاری برای لوگوی منوی سمت راست انتخاب کرد (JPG/PNG/WebP).
+- عکس به تصویر کوچکِ مناسب تبدیل می‌شود؛ بدون عکس، حرف اول نام عمده‌فروشی نمایش داده می‌شود.
+- لوگو از صفحهٔ تنظیمات قابل تعویض یا حذف است.
+- کلیک روی لوگو یا نام عمده‌فروشی در بالای سایدبار کاربر را با رعایت صلاحیت‌ها به صفحهٔ اصلی می‌برد.
+
+## Settings password confirmation
+- Added a fresh password challenge before saving Settings (shop name, logo, fiscal year, USD/PKR rates).
+- Protected fiscal-year switching from the right sidebar with the same confirmation.
+- Replaced browser confirmation dialogs for clearing transactions and resetting the shop with a password dialog, an explicit reminder and irreversible-action acknowledgment.
+- No data or settings are changed when an action is cancelled or a password is incorrect.
+- Security is still frontend-only; a backend must enforce authorization in production.
