@@ -619,8 +619,6 @@ td { font-size: 13px; }
 }
 
 /* Employee login demonstration. Phone-first typography and controls. */
-.sidebar-logout {display:flex;align-items:center;justify-content:flex-start;gap:9px;width:100%;border:0;background:transparent;color:#aa3954;font-weight:700;font-size:13px;min-height:42px;padding:7px 15px;text-align:right;cursor:pointer}
-.sidebar-logout:hover {background:#fff0f3}
 .linked-employee-preview {display:flex;align-items:center;gap:10px;min-height:45px;background:#f7f4fd;border:1px solid #e8dff3;border-radius:12px;padding:10px 13px;color:#67538f;font-size:14px;line-height:1.7}
 .demo-password-row {display:flex;align-items:stretch;gap:10px;width:100%;flex-wrap:wrap}
 .demo-password-row input {flex:1 1 180px;min-width:0;text-align:left;direction:ltr}
@@ -849,3 +847,6 @@ td { font-size: 13px; }
   .settings-password-actions {flex-direction:column-reverse;}
   .settings-password-actions .btn {width:100%;}
 }
+
+/* Keep long section menus scrollable after removing the sidebar logout. */
+.sidebar-nav { min-height:0; overscroll-behavior:contain; }

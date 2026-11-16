@@ -1,3 +1,8 @@
+## Sidebar navigation improvement
+- Removed «خروج از حساب» from the sidebar to leave more vertical space for navigation.
+- Logout remains under the account dropdown in the upper navigation bar for signed-in users.
+- Sidebar section scrolling remains independent on desktop and mobile.
+
 ## November 2026 — Start-screen login, currency conversion, employee schedules
 
 - Added first-run administrator setup and login-first experience, keeping local demo recovery.

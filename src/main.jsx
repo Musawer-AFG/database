@@ -1330,7 +1330,6 @@ function App() {
             </span>
             <ChevronDown size={14} className="help-chevron" />
           </button>
-          {demoLoginEnabled && !previewUserId && <button type="button" className="sidebar-logout" onClick={logout}><LogOut size={16}/> خروج از حساب</button>}
           <button type="button" className="sidebar-user sidebar-action" onClick={() => setCurrentPage("profile")}>
             <span className="avatar">{activeUser.name.trim().charAt(0) || "ح"}</span>
             <span className="sidebar-action-copy">
@@ -1400,7 +1399,7 @@ function App() {
               </div>}
             </div>
             <div className="header-account-wrap" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget)) setAccountOpen(false)}}>
-              <button type="button" className="user-chip" aria-expanded={accountOpen} aria-label="باز کردن منوی حساب کاربری" title="منوی حساب کاربری" onClick={()=>{setAccountOpen(v=>!v);setCalendarOpen(false);setSearchOpen(false)}}>
+              <button type="button" className="user-chip" aria-expanded={accountOpen} aria-label="باز کردن منوی حساب کاربری" title="حساب کاربری، تنظیمات و خروج از حساب" onClick={()=>{setAccountOpen(v=>!v);setCalendarOpen(false);setSearchOpen(false)}}>
                 <span className="avatar">{activeUser.name.trim().charAt(0) || "ح"}</span>
                 <span>{activeUser.name}</span>
                 <ChevronDown size={15} className={accountOpen?'rotate-chevron':''}/>
