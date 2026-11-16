@@ -43,7 +43,6 @@ import {
   CircleHelp,
   LogOut,
   Check,
-  AlertCircle,
   Clock3,
   ArrowLeftRight,
   PanelRightClose,
@@ -61,7 +60,6 @@ import {
   ShieldCheck,
   LockKeyhole,
   UserPlus,
-  ShieldAlert,
   KeyRound,
   EyeOff,
   ChevronLeft,
@@ -79,6 +77,7 @@ import { createRecoveryCode, createRecoveryRecord, verifyRecoveryCode } from "./
 import { quickSearch, transactionsForDay } from "./headerTools.js";
 import { employeeAccess, effectiveDemoAccess, kabulLocalDateTime, normalizeScheduleFields, validAfghanDateTime, validShiftTime } from "./workHours.js";
 import { CURRENCIES, CURRENCY_LABELS, DEFAULT_RATES, normalizeRates, currencyRate, toAfn, fromAfn, roundMoney, convertInvoiceToAfn } from "./exchange.js";
+import { FRESH_STORAGE_KEYS, validateFirstSetup, clearFreshStorage } from "./freshSetup.js";
 
 const afghanMonths = [
   "حمل",
@@ -411,7 +410,7 @@ const initialData = {
 function loadInitial() {
   try {
     const saved = JSON.parse(
-      localStorage.getItem("afghan-wholesale-ui-data") || "{}",
+      localStorage.getItem(FRESH_STORAGE_KEYS.data) || "{}",
     );
     const result = Object.fromEntries(
       Object.keys(initialData).map((key) => [
@@ -444,7 +443,7 @@ const defaultPreferences = () => ({
 function loadPreferences() {
   const defaults = defaultPreferences();
   try {
-    const stored = JSON.parse(localStorage.getItem("afghan-wholesale-ui-preferences") || "{}");
+    const stored = JSON.parse(localStorage.getItem(FRESH_STORAGE_KEYS.preferences) || "{}");
     return {
       ...defaults,
       shopName: String(stored.shopName || defaults.shopName),
@@ -472,14 +471,14 @@ function App() {
   const [data, setData] = useState(loadInitial);
   const [access, setAccess] = useState(() => {
     const prefs=loadPreferences();
-    try { return normalizeAccess(JSON.parse(localStorage.getItem("afghan-wholesale-ui-access") || "null"),prefs.userName,prefs.userTitle); }
+    try { return normalizeAccess(JSON.parse(localStorage.getItem(FRESH_STORAGE_KEYS.access) || "null"),prefs.userName,prefs.userTitle); }
     catch { return initialAccess(prefs.userName,prefs.userTitle); }
   });
   // Demo-only browser session; real authentication MUST be implemented on the server.
   const [kabulTick,setKabulTick] = useState(() => Date.now());
   const [setupResult,setSetupResult] = useState(null);
   const [sessionUserId,setSessionUserId] = useState(()=>{
-    try { return sessionStorage.getItem('afghan-wholesale-ui-demo-session') || null; } catch { return null; }
+    try { return sessionStorage.getItem(FRESH_STORAGE_KEYS.session) || null; } catch { return null; }
   });
   const [previewUserId, setPreviewUserId] = useState(null);
   const demoLoginEnabled=!!access.users.find(u=>u.id==='admin-user')?.passwordHash;
@@ -504,7 +503,7 @@ function App() {
   // Different devices still need a real backend for shared access enforcement.
   useEffect(()=>{
     const syncAccess=event=>{
-      if(event.key!=='afghan-wholesale-ui-access') return;
+      if(event.key!==FRESH_STORAGE_KEYS.access) return;
       try {setAccess(normalizeAccess(JSON.parse(event.newValue||'null'),loadPreferences().userName,loadPreferences().userTitle));}
       catch { /* Ignore a malformed value from another tab. */ }
       setKabulTick(Date.now());
@@ -553,13 +552,13 @@ function App() {
   ]);
 
   useEffect(() => {
-    localStorage.setItem("afghan-wholesale-ui-data", JSON.stringify(data));
+    localStorage.setItem(FRESH_STORAGE_KEYS.data, JSON.stringify(data));
   }, [data]);
   useEffect(() => {
-    localStorage.setItem("afghan-wholesale-ui-preferences", JSON.stringify(preferences));
+    localStorage.setItem(FRESH_STORAGE_KEYS.preferences, JSON.stringify(preferences));
   }, [preferences]);
   useEffect(() => {
-    localStorage.setItem("afghan-wholesale-ui-access", JSON.stringify(access));
+    localStorage.setItem(FRESH_STORAGE_KEYS.access, JSON.stringify(access));
   }, [access]);
   useEffect(() => {
     if (!toast) return;
@@ -636,23 +635,32 @@ function App() {
       setAccess(next); notify('حساب کارمند و نقش او ذخیره شد.'); return true;
     } catch(error) {notify(error.message);return false;}
   };
-  const activateDemoLogin=async (username,rawPassword) => {
+  const activateDemoLogin=async (username,rawPassword,initialProfile=null) => {
     if(!requirePermission('roles.manage')) return false;
     try {
       const credential=await makeDemoCredential(rawPassword);
-      const next=setAccountPassword(access,'admin-user',credential,{username,mustChangePassword:false});
+      let next=setAccountPassword(access,'admin-user',credential,{username,mustChangePassword:false});
+      // Initial setup can personalize the business and administrator. Later password changes
+      // from the Roles screen leave those details unchanged.
+      if (initialProfile && !demoLoginEnabled) {
+        const adminName=String(initialProfile.adminName||'').trim().slice(0,80);
+        const shopName=String(initialProfile.shopName||'').trim().slice(0,90);
+        if(!adminName || !shopName) throw Error('نام فروشگاه و نام مدیر ضروری است.');
+        next={...next,users:next.users.map(u=>u.id==='admin-user'?{...u,name:adminName,title:'مدیر سیستم'}:u)};
+        setPreferences(prev=>({...prev,shopName,userName:adminName,userTitle:'مدیر سیستم'}));
+      }
       const recoveryCode=createRecoveryCode();
       const record=await createRecoveryRecord(recoveryCode,{days:365});
       setAccess(setRecoveryRecord(next,'admin-user',record));
-      // First-run setup goes to the login page. Admin password changes keep the existing session.
+      // Always require explicit sign-in after the first administrator is created.
       if(!demoLoginEnabled) {
-        sessionStorage.removeItem('afghan-wholesale-ui-demo-session');
+        sessionStorage.removeItem(FRESH_STORAGE_KEYS.session);
         setSessionUserId(null);
         setSetupResult({username,recoveryCode});
       }
-      notify('صفحهٔ ورود نمایشی فعال شد. کد بازیابی مدیر را در جای امن نگه دارید.');
+      notify('حساب مدیر ساخته شد. کد بازیابی را در جای امن نگه دارید.');
       return {ok:true,recoveryCode};
-    } catch(error) {notify(error.message);return false;}
+    } catch(error) {notify(error.message);return {ok:false,message:error.message};}
   };
   const issueRecovery=async userId => {
     if(!requirePermission('roles.manage')) return null;
@@ -688,13 +696,13 @@ function App() {
     if(!u || !await verifyDemoCredential(password,u)) return {ok:false,message:'نام کاربری یا رمز اشتباه است، یا حساب غیرفعال شده است.'};
     const status=employeeAccess(u);
     if(!status.allowed) return {ok:false,message:`${status.reason} وقت فعلی افغانستان: ${kabulLocalDateTime(new Date()).replace('T',' ')}`};
-    sessionStorage.setItem('afghan-wholesale-ui-demo-session',u.id);
+    sessionStorage.setItem(FRESH_STORAGE_KEYS.session,u.id);
     setSessionUserId(u.id);setPreviewUserId(null);setPage('dashboard');setMobileMenu(false);
     return {ok:true};
   };
   const logout=()=>{
-    if(!demoLoginEnabled) {notify('ابتدا ورود نمایشی را در بخش مدیریت فعال کنید.');return;}
-    sessionStorage.removeItem('afghan-wholesale-ui-demo-session');
+    if(!demoLoginEnabled) {notify('ابتدا حساب مدیر را بسازید.');return;}
+    sessionStorage.removeItem(FRESH_STORAGE_KEYS.session);
     setSessionUserId(null);setPreviewUserId(null);setPage('dashboard');setModal(null);setMobileMenu(false);
   };
   const changeOwnDemoPassword=async password=>{
@@ -1315,7 +1323,7 @@ function App() {
                 aria-label="اعلان‌ها"
                 aria-expanded={showNotices}
                 onClick={() => setShowNotices(x => !x)}
-              ><Bell size={17} />{lowStockCount > 0 && <i />}</button>
+              ><Bell size={17} /></button>
               {showNotices && <div className="notices-popover" role="status">
                 <strong>اعلان‌های گدام</strong>
                 <p>{lowStockCount > 0 ? `${number(lowStockCount)} محصول به موجودی کم رسیده است.` : "فعلاً اعلان تازه‌ای وجود ندارد."}</p>
@@ -1343,7 +1351,7 @@ function App() {
           <QuickSearchBox mobile search={search} onSearch={setSearch} results={foundItems} onSelect={goToSearchResult} open={searchOpen} setOpen={setSearchOpen}/>
         </div>
         {previewUserId && <div className="role-preview-banner" role="status" dir="rtl">
-          <ShieldAlert size={18} /> <span>پیش‌نمایش صلاحیت‌های <strong>{activeUser.name}</strong> — {activeRole?.name}. این حالت ورود واقعی نیست.</span>
+          <Eye size={18} /> <span>پیش‌نمایش صلاحیت‌های <strong>{activeUser.name}</strong> — {activeRole?.name}.</span>
           <button type="button" className="btn secondary" onClick={leavePreview}>بازگشت به مدیر سیستم</button>
         </div>}
         <main className="main-area">
@@ -1482,33 +1490,9 @@ function Panel({ title, action, children, className = "" }) {
     </section>
   );
 }
-function dashboardPreviewRecords(fiscalYear) {
-  const sales = [18000,25000,21000,31000,27000,35000,32000,46000,39000,51000,44000,58000];
-  const purchases = [13000,16000,15000,25000,19000,24000,21000,31000,29000,36000,30000,38000];
-  const invoices = [];
-  sales.forEach((value,index) => {
-    const date = `${fiscalYear}/${String(index+1).padStart(2,'0')}/10`;
-    invoices.push({id:`demo-sale-${index}`,type:"sale",date,total:value,paid:value,balance:0,items:[]});
-    invoices.push({id:`demo-buy-${index}`,type:"purchase",date,total:purchases[index],paid:purchases[index],balance:0,items:[]});
-  });
-  [15,45,75,120].forEach((days,index) => {
-    const date = afghanDate(new Date(Date.now()-days*86400000));
-    invoices.push({id:`demo-debt-${index}`,type:"sale",date,total:[12000,21000,9000,33000][index],paid:0,balance:[12000,21000,9000,33000][index],items:[]});
-  });
-  return {
-    invoices, products:[
-      {id:'demo-p1',name:'برنج درجه یک',unit:'بوری',quantity:5,reorder:15,cost:1500},
-      {id:'demo-p2',name:'روغن پنج لیتر',unit:'کارتن',quantity:8,reorder:18,cost:850},
-      {id:'demo-p3',name:'بوره',unit:'بوری',quantity:0,reorder:12,cost:1200},
-    ], stockMovements:[], warehouses:[],
-  };
-}
 function Dashboard({ data, totals, fiscalYear, userName, onNavigate, onInvoice, onJournal, can=()=>true }) {
-  const [sampleCharts,setSampleCharts] = useState(() => data.invoices.length===0 && data.products.length===0);
-  useEffect(() => {
-    if (data.invoices.length || data.products.length) setSampleCharts(false);
-  }, [data.invoices.length,data.products.length]);
-  const chartData = useMemo(() => sampleCharts ? dashboardPreviewRecords(fiscalYear) : data, [sampleCharts,data,fiscalYear]);
+  // No artificial figures: charts use only transactions entered by the shop.
+  const chartData = data;
   const shortcuts = [
     ["صدور بل فروش", () => onInvoice("sale"), Receipt, 'sales.manage'],
     ["صدور بل خرید", () => onInvoice("purchase"), ShoppingCart, 'purchases.manage'],
@@ -1525,9 +1509,6 @@ function Dashboard({ data, totals, fiscalYear, userName, onNavigate, onInvoice, 
         </div>
         <div className="dashboard-period-actions">
           <span className="year-pill">سال مالی {number(fiscalYear)}</span>
-          <button type="button" className="btn secondary preview-charts-toggle" onClick={()=>setSampleCharts(x=>!x)}>
-            {sampleCharts ? "دیدن نمودارهای واقعی" : "نمایش نمودارهای نمونه"}
-          </button>
         </div>
       </div>
       {shortcuts.length>0 && <div className="shortcut-grid">
@@ -1580,7 +1561,6 @@ function Dashboard({ data, totals, fiscalYear, userName, onNavigate, onInvoice, 
           tone="cyan"
         />
       </div>
-      {sampleCharts && <div className="dashboard-demo-note" role="status"><AlertCircle size={17}/><span>این سه نمودار با ارقام نمونه برای پیش‌نمایش طراحی نمایش داده شده‌اند؛ این ارقام واقعی نیستند و در ریکاردهای فروشگاه ذخیره نمی‌شوند.</span></div>}
       <div className="dashboard-insights-grid">
         <Panel title="مقایسه فروشات و خریداری‌ها" action={<span className="muted-pill">سال {number(fiscalYear)}</span>}>
           <SalesPurchaseChart data={chartData} fiscalYear={fiscalYear} />
@@ -1681,7 +1661,7 @@ function DebtAgingChart({data}) {
 }
 function LowStockDashboard({data}) {
   const items=lowStockProducts(data);
-  if (!items.length) return <EmptyState text="فعلاً جنس با موجودی کمتر یا مساوی نقطهٔ سفارش موجود نیست. برای هشدار، نقطهٔ سفارش محصولات را تعیین کنید."/>;
+  if (!items.length) return <EmptyState text="فعلاً جنس با موجودی کمتر یا مساوی نقطهٔ سفارش موجود نیست. برای شناسایی اجناس با موجودی کم، نقطهٔ سفارش محصولات را تعیین کنید."/>;
   return <div className="insight-stock-list">
     {items.slice(0,7).map(item=><div className="insight-stock-row" key={item.id}>
       <div className="insight-row-label"><strong>{item.name}</strong><span>{number(item.quantity)} / {number(item.reorder)} {item.unit||''}</span></div>
@@ -1786,7 +1766,7 @@ function WarehouseDashboard({ data, totals, onNavigate, onStock }) {
       <StatCard label="ارزش موجودی" value={money(inventory.value)} icon={CircleDollarSign} tone="blue"/>
       <StatCard label="محصولات ثبت‌شده" value={number(inventory.rows.length)} icon={Package} tone="violet"/>
       <StatCard label="تعداد موجودی" value={number(inventory.totalQuantity)} icon={Boxes} tone="green"/>
-      <StatCard label="زیر نقطه سفارش" value={number(lowStock.length)} icon={AlertCircle} tone="rose"/>
+      <StatCard label="زیر نقطه سفارش" value={number(lowStock.length)} icon={Package} tone="rose"/>
       <StatCard label="کل ورودی ثبت‌شده" value={number(inventory.incoming)} icon={ArrowDownLeft} tone="cyan"/>
       <StatCard label="کل خروجی ثبت‌شده" value={number(inventory.outgoing)} icon={ArrowUpLeft} tone="amber"/>
     </div>
@@ -2719,9 +2699,7 @@ function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIss
   const linkedUserId=employeeId=>access.users.find(u=>String(u.employeeId||'')===String(employeeId))?.id;
   return <>
     <PageHeading title="نقش‌ها و صلاحیت‌ها" description="برای کارمندان حساب ورود بسازید و صلاحیت هر نقش را تعیین کنید."/>
-    <div className="role-demo-warning"><ShieldAlert size={19}/><span><strong>فقط نسخهٔ نمایشی:</strong> ورود و رمزها فقط در همین مرورگر نگهداری می‌شوند. حساب ساخته‌شده در کمپیوتر کارمند ظاهر نمی‌شود؛ برای ورود واقعی از دستگاه‌های مختلف به سرور و دیتابیس نیاز است.</span></div>
     <div className="info-note" role="status"><Clock3 size={16}/> وقت فعلی افغانستان: <strong dir="ltr">{kabulLocalDateTime(nowAfghanistan).replace('T',' ')}</strong> — شیفت‌ها به همین وقت بررسی می‌شوند. <strong>حساب مدیر اصلی محدودیت ساعت ندارد.</strong> برای آزمایش واقعی از حساب کارمند وارد شوید؛ پیش‌نمایش کارمند نیز اکنون ساعت کاری را بررسی می‌کند.</div>
-    {demoLoginEnabled && !access.users.find(u=>u.system)?.recoveryHash && <div className="role-demo-warning"><KeyRound size={19}/><span>برای مدیر هنوز کد بازیابی وجود ندارد. پیش از خروج، از بخش کاربران روی «ساخت کد بازیابی» در حساب مدیر کلیک کنید.</span></div>}
     <div className="role-tabs" role="tablist" aria-label="مدیریت کاربران و نقش‌ها">
       <button type="button" role="tab" aria-selected={tab==='users'} className={`btn ${tab==='users'?'primary':'secondary'}`} onClick={()=>{setTab('users');setEditingRole(false);setFormError('')}}><Users size={16}/> کاربران ({number(access.users.length)})</button>
       <button type="button" role="tab" aria-selected={tab==='roles'} className={`btn ${tab==='roles'?'primary':'secondary'}`} onClick={()=>{setTab('roles');setEditingUser(false);setFormError('')}}><ShieldCheck size={16}/> نقش‌ها ({number(access.roles.length)})</button>
@@ -2745,17 +2723,16 @@ function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIss
     </>}
     {tab==='users' && <>
       {recoveryPanel}
-      {(!demoLoginEnabled || showAdminReset) && <Panel title={demoLoginEnabled?'تغییر رمز مدیر در همین مرورگر':'فعال‌سازی صفحه ورود نمایشی'}>
-        <p className="info-note">برای اینکه کارمندان در همین مرورگر بتوانند رمز خود را آزمایش کنند، ابتدا نام کاربری و رمز مدیر را تعیین کنید. تا قبل از فعال‌سازی، برنامه مثل قبل بدون ورود باز می‌شود.</p>
+      {(!demoLoginEnabled || showAdminReset) && <Panel title={demoLoginEnabled?'تغییر رمز مدیر':'تنظیم حساب مدیر'}>
         <form className="business-settings-form role-user-form" onSubmit={submitAdmin} autoComplete="off">
           <label>نام کاربری مدیر<input required dir="ltr" value={adminDraft.username} onChange={e=>setAdminDraft({...adminDraft,username:e.target.value})} placeholder="admin"/></label>
           <label>رمز مدیر (حداقل ۸ حرف)<input required type="password" minLength={8} autoComplete="new-password" value={adminDraft.password} onChange={e=>setAdminDraft({...adminDraft,password:e.target.value})}/></label>
           <label>تکرار رمز<input required type="password" minLength={8} autoComplete="new-password" value={adminDraft.confirmPassword} onChange={e=>setAdminDraft({...adminDraft,confirmPassword:e.target.value})}/></label>
           {formError && <p role="alert" className="form-error">{formError}</p>}
-          <div className="role-item-actions"><button disabled={working} className="btn primary" type="submit"><LockKeyhole size={17}/> فعال‌سازی ورود نمایشی</button></div>
+          <div className="role-item-actions"><button disabled={working} className="btn primary" type="submit"><LockKeyhole size={17}/> ذخیره رمز مدیر</button></div>
         </form>
       </Panel>}
-      {demoLoginEnabled && <div className="info-note">صفحهٔ ورود نمایشی فعال است. برای آزمایش با کاربر دیگر، از دکمهٔ «خروج از حساب» در پایین منو استفاده کنید. نام کاربری مدیر: <strong dir="ltr">{access.users.find(u=>u.system)?.username}</strong> <button type="button" className="btn secondary" onClick={()=>{setShowAdminReset(v=>!v);setFormError('')}}>تغییر رمز مدیر</button></div>}
+      {demoLoginEnabled && <div className="info-note">برای ورود با حساب کارمند، ابتدا از حساب مدیر خارج شوید. نام کاربری مدیر: <strong dir="ltr">{access.users.find(u=>u.system)?.username}</strong> <button type="button" className="btn secondary" onClick={()=>{setShowAdminReset(v=>!v);setFormError('')}}>تغییر رمز مدیر</button></div>}
       <Panel title="کاربران و نقش‌های آن‌ها" action={<button type="button" className="btn primary" onClick={()=>startUser(null)}><UserPlus size={16}/> افزودن کاربر</button>}>
         <div className="role-list">{access.users.map(user=><div className="role-list-item" key={user.id}>
           <div className="role-item-main"><span className="role-user-avatar">{user.name.trim().charAt(0)||'ک'}</span><div><strong>{user.name}</strong><small>{user.title||'بدون عنوان'} • {roleById(user.roleId)?.name||'نقش نامشخص'}</small><small>نام کاربری: <b dir="ltr">{user.username||'تعیین نشده'}</b> • {user.passwordHash?'رمز تنظیم شده':'بدون رمز'} • {user.active===false?'غیرفعال':'فعال'}</small>{!user.system && <><small>شیفت {normalizeScheduleFields(user).shiftStart} تا {normalizeScheduleFields(user).shiftEnd} (وقت افغانستان){normalizeScheduleFields(user).extraUntil?` • اجازهٔ اضافی تا ${normalizeScheduleFields(user).extraUntil.replace('T',' ')}`:''}</small><small className={employeeAccess(user,nowAfghanistan).allowed?'shift-current-open':'shift-current-closed'}>{employeeAccess(user,nowAfghanistan).allowed?'● اکنون اجازهٔ ورود دارد':'● اکنون ورود بسته است'}{normalizeScheduleFields(user).extraUntil && employeeAccess(user,nowAfghanistan).allowed && !employeeAccess({...user,extraUntil:''},nowAfghanistan).allowed?' (با اجازهٔ اضافی)':''}</small></>}</div></div>
@@ -2852,43 +2829,51 @@ function AfghanHeaderCalendar({data,todayLabel,canView,onNavigate,onClose}) {
 }
 
 function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
+  const [businessName,setBusinessName]=useState('');
+  const [adminName,setAdminName]=useState('');
   const [username,setUsername]=useState('admin');
   const [password,setPassword]=useState('');
   const [confirm,setConfirm]=useState('');
+  const [showPassword,setShowPassword]=useState(false);
   const [message,setMessage]=useState('');
   const [busy,setBusy]=useState(false);
   const submit=async event=>{
     event.preventDefault();setMessage('');
-    if(!validUsername(username)){setMessage('نام کاربری باید بین ۳ و ۳۲ حرف انگلیسی یا عدد داشته باشد.');return;}
-    if(password.length<8){setMessage('رمز باید حداقل ۸ حرف داشته باشد.');return;}
-    if(password!==confirm){setMessage('تکرار رمز مطابقت ندارد.');return;}
+    const first=validateFirstSetup({shopName:businessName,adminName,username,password,confirmPassword:confirm});
+    if(!first.ok){setMessage(first.message);return;}
     setBusy(true);
-    try {const result=await onSetup(username,password);if(!result?.ok)setMessage('ساخت حساب مدیر انجام نشد.');}
-    catch {setMessage('ساخت حساب مدیر انجام نشد.');}
+    try {
+      const result=await onSetup(first.username,password,first.profile);
+      if(!result?.ok)setMessage(result?.message||'ساخت حساب مدیر انجام نشد.');
+    } catch {setMessage('ساخت حساب مدیر انجام نشد.');}
     finally {setBusy(false);}
   };
-  return <div className="demo-login-page" dir="rtl"><div className="demo-login-card">
+  return <div className="demo-login-page" dir="rtl"><div className="demo-login-card fresh-start-card">
     <div className="demo-login-icon"><ShieldCheck size={27}/></div>
-    <div className="demo-login-brow">{shopName} — مرحلهٔ اول راه‌اندازی</div>
+    <div className="demo-login-brow">راه‌اندازی عمده‌فروشی</div>
     {setupResult ? <>
+      <div className="setup-steps"><span className="step-done">۱. ساخت حساب</span><span className="step-active">۲. کد بازیابی</span><span>۳. ورود</span></div>
       <h1>حساب مدیر ساخته شد</h1>
-      <p>کد بازیابی مدیر را در یک محل محفوظ نگه دارید. این کد فقط همین‌بار نمایش داده می‌شود.</p>
-      <div className="recovery-code-panel"><strong>نام کاربری: {setupResult.username}</strong><code dir="ltr">{setupResult.recoveryCode}</code><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(setupResult.recoveryCode)}>کاپی کد بازیابی</button></div>
-      <button className="btn primary login-back-button" type="button" onClick={onContinue}>رفتن به صفحه ورود</button>
+      <p>کد بازیابی را در جای محفوظ یادداشت کنید. اگر رمز را فراموش کردید، با همین کد می‌توانید رمز تازه بسازید.</p>
+      <div className="recovery-code-panel"><strong>نام کاربری: <span dir="ltr">{setupResult.username}</span></strong><code dir="ltr">{setupResult.recoveryCode}</code><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(setupResult.recoveryCode)}><ClipboardList size={16}/> کاپی کد بازیابی</button></div>
+      <button className="btn primary login-back-button" type="button" onClick={onContinue}><LogOut size={17}/> رفتن به صفحه ورود</button>
     </> : <>
-      <h1>ساخت حساب مدیر سیستم</h1>
-      <p>برای ورود به برنامه، ابتدا نام کاربری و رمز مدیر را تنظیم کنید. سپس تمام کاربران از صفحهٔ ورود وارد می‌شوند.</p>
+      <div className="setup-steps"><span className="step-active">۱. ساخت حساب</span><span>۲. کد بازیابی</span><span>۳. ورود</span></div>
+      <h1>ساخت عمده‌فروشی جدید</h1>
+      <p>ابتدا نام عمده‌فروشی و حساب مدیر سیستم را بسازید. برنامه با ریکاردهای خالی آغاز می‌شود.</p>
       <form className="demo-login-form" onSubmit={submit}>
-        <label>نام کاربری مدیر<input autoFocus dir="ltr" required value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} autoComplete="username"/></label>
-        <label>رمز مدیر<input dir="ltr" required type="password" minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/></label>
-        <label>تکرار رمز<input dir="ltr" required type="password" minLength={8} autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>
+        <label>نام عمده‌فروشی<input autoFocus required maxLength={90} value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="مثلاً: عمده‌فروشی کابل"/></label>
+        <label>نام و تخلص مدیر<input required maxLength={80} value={adminName} onChange={e=>setAdminName(e.target.value)} placeholder="نام مدیر سیستم"/></label>
+        <label>نام کاربری مدیر<input dir="ltr" required value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} autoComplete="username"/></label>
+        <label>رمز مدیر<div className="login-password-control"><input dir="ltr" required type={showPassword?'text':'password'} minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="حداقل ۸ حرف یا عدد"/><button className="password-eye" type="button" onClick={()=>setShowPassword(x=>!x)} aria-label={showPassword?'پنهان کردن رمز':'نمایش رمز'}>{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></label>
+        <label>تکرار رمز<input dir="ltr" required type={showPassword?'text':'password'} minLength={8} autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>
         {message&&<p className="form-error" role="alert">{message}</p>}
-        <button type="submit" className="btn primary" disabled={busy}><ShieldCheck size={17}/>{busy?'در حال تنظیم...':'ساخت حساب مدیر'}</button>
+        <button type="submit" className="btn primary" disabled={busy}><ShieldCheck size={17}/>{busy?'در حال ساخت...':'ساخت حساب مدیر'}</button>
       </form>
     </>}
-    <p className="demo-login-disclaimer"><ShieldAlert size={15}/><span>فقط نسخهٔ نمایشی مرورگر: این حساب در کمپیوترهای دیگر مشترک نیست و رمزها جایگزین امنیت سرور نیستند.</span></p>
   </div></div>;
 }
+
 function DemoShiftClosed({shopName,user,status,onLogout,preview=false,now=new Date()}) {
   return <div className="demo-login-page" dir="rtl"><div className="demo-login-card">
     <div className="demo-login-icon"><Clock3 size={26}/></div>
@@ -2897,7 +2882,6 @@ function DemoShiftClosed({shopName,user,status,onLogout,preview=false,now=new Da
     <div className="info-note">وقت فعلی افغانستان: <strong dir="ltr">{kabulLocalDateTime(now).replace('T',' ')}</strong></div>
     <p>{preview?'این پیش‌نمایش مطابق ساعت کاری کارمند بسته است. مدیر می‌تواند به پنل مدیریت برگردد یا اجازهٔ اضافی بدهد.':'مدیر سیستم می‌تواند در بخش «نقش‌ها و صلاحیت‌ها» برای شما دسترسی اضافی تا ساعت مشخص تعیین کند.'}</p>
     <button className="btn primary login-back-button" type="button" onClick={onLogout}><LogOut size={17}/>{preview?'بازگشت به مدیر سیستم':'خروج از حساب'}</button>
-    <p className="demo-login-disclaimer">نسخهٔ نمایشی؛ قفل واقعی شیفت باید توسط سرور اجرا شود.</p>
   </div></div>;
 }
 function DemoLoginScreen({shopName,onLogin,onRecover}) {
@@ -2914,7 +2898,7 @@ function DemoLoginScreen({shopName,onLogin,onRecover}) {
   const submitLogin=async event=>{
     event.preventDefault();setMessage('');setBusy(true);
     try {const result=await onLogin(username,password);if(!result?.ok)setMessage(result?.message||'نام کاربری یا رمز اشتباه است، یا حساب غیرفعال شده است.');}
-    catch {setMessage('امکان ورود نمایشی موجود نیست.');}
+    catch {setMessage('امکان ورود موجود نیست.');}
     finally {setBusy(false);setPassword('');}
   };
   const submitRecovery=async event=>{
@@ -2958,7 +2942,6 @@ function DemoLoginScreen({shopName,onLogin,onRecover}) {
       {newAdminCode && <div className="recovery-code-panel" role="status"><strong>کد بازیابی تازه مدیر — این کد را خصوصی ذخیره کنید</strong><code dir="ltr">{newAdminCode}</code><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(newAdminCode)}>کاپی کد تازه</button></div>}
       <button type="button" className="btn primary login-back-button" onClick={()=>{setView('login');setMessage('');setNewAdminCode('')}}>بازگشت به صفحه ورود</button>
     </>}
-    <p className="demo-login-disclaimer"><ShieldAlert size={15}/> <span>نسخهٔ نمایشی: حساب‌ها، رمزها و بازیابی فقط در همین مرورگر کار می‌کنند؛ برای استفاده واقعی سرور و سیستم ورود امن لازم است.</span></p>
   </div></div>;
 }
 
@@ -2979,7 +2962,7 @@ function DemoChangePasswordScreen({shopName,user,onChangePassword}) {
       <label>تکرار رمز تازه<input required minLength={8} type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} autoComplete="new-password"/></label>
       {error&&<p role="alert" className="form-error">{error}</p>}
       <button className="btn primary" disabled={busy} type="submit"><Save size={17}/> ذخیره رمز و ورود</button>
-    </form><p className="demo-login-disclaimer">نسخهٔ نمایشی مرورگر — ورود واقعی هنوز به سرور متصل نیست.</p>
+    </form>
   </div></div>;
 }
 
@@ -3034,16 +3017,23 @@ function SettingsPage({ preferences, years, data, onSave, canManage=true }) {
         <div><strong>واحد پول اصلی</strong><span>افغانی (AFN) — پشتیبانی از USD و PKR با نرخ دستی</span></div>
       </div>
     </Panel>
-    {canManage && <Panel title="مدیریت معلومات نمایشی">
-      <p className="info-note">برای حذف تمام ریکاردهای موجود در همین مرورگر از گزینهٔ زیر استفاده کنید. این کار قابل برگشت نیست؛ نام فروشگاه و پروفایل حفظ می‌شوند.</p>
+    {canManage && <Panel title="مدیریت معلومات">
+      <p className="settings-muted-info">پاک‌کردن معاملات، معلومات حساب مدیر و نام عمده‌فروشی را حفظ می‌کند.</p>
       <button className="btn secondary" type="button" onClick={() => {
-        if (window.confirm("تمام معلومات معاملات و ریکاردهای نمایشی از این مرورگر پاک شوند؟")) {
-          localStorage.removeItem("afghan-wholesale-ui-data");
+        if (window.confirm("تمام معاملات ثبت‌شده از این مرورگر پاک شوند؟")) {
+          localStorage.removeItem(FRESH_STORAGE_KEYS.data);
           window.location.reload();
         }
-      }}><RotateCcw size={16}/> پاک‌کردن معلومات نمایشی مرورگر</button>
+      }}><RotateCcw size={16}/> پاک‌کردن معاملات</button>
+      <p className="settings-muted-info">راه‌اندازی دوباره تمام معلومات این نسخه، به شمول حساب‌ها و معاملات را پاک می‌کند و صفحهٔ ساخت مدیر را باز می‌کند.</p>
+      <button className="btn secondary" type="button" onClick={() => {
+        if (window.confirm('تمام معاملات، حساب‌ها و تنظیمات این نسخه حذف و برنامه از نو راه‌اندازی شود؟') &&
+            window.confirm('تأیید نهایی: این کار قابل برگشت نیست. ادامه می‌دهید؟')) {
+          clearFreshStorage(localStorage,sessionStorage);
+          window.location.reload();
+        }
+      }}><RotateCcw size={16}/> راه‌اندازی دوباره از صفر</button>
     </Panel>}
-    <p className="info-note">این نسخهٔ نمایشی معلومات و تنظیمات را فقط در مرورگر شما ذخیره می‌کند. تغییرات نام فروشگاه در دستگاه‌های دیگر همگام نمی‌شود.</p>
   </>;
 }
 

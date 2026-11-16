@@ -1,3 +1,15 @@
+# شروع جدید — ایجاد حساب مدیر و ورود اجباری
+
+این نسخه با معلومات تجارتی خالی آغاز می‌شود. بار اول، فرم ساخت عمده‌فروشی و مدیر سیستم نمایش داده می‌شود؛ پس از ذخیرهٔ **کد بازیابی**، صفحهٔ ورود باز می‌شود. بدون ورود، داشبورد نمایش داده نمی‌شود.
+
+بنرهای اخطاری نمایشی و نمودارهای نمونه از رابط حذف شده‌اند. پیام‌های خطای فورم و محدودیت دسترسی همچنان باقی می‌مانند.
+
+**توجه:** این نسخه همچنان فقط React و ذخیره‌سازی مرورگر است؛ با دیتابیس/بک‌اند واقعی متصل نیست. نسخهٔ جدید کلیدهای ذخیره‌سازی جداگانه دارد؛ معلومات قبلی خودکار انتقال نمی‌یابد و پاک نمی‌شود.
+
+راهنمای کامل: `FRESH_START_DARI.md`.
+
+---
+
 # آخرین تغییرات: ورود، ارز و شیفت کارمندان
 
 - **صفحه ورود در آغاز:** نخستین بار، ساخت حساب مدیر و کد بازیابی نمایش داده می‌شود؛ پس از آن نام کاربری و رمز برای ورود لازم است.
@@ -112,11 +124,11 @@ See `AFGHAN_LOCALIZATION.md` for changes to TIN, Tazkira, provinces, districts, 
 
 - `صفحه اصلی → داشبورد` now includes **مقایسه فروشات و خریداری‌ها** (sales vs purchases by Afghan month), **تحلیل قرضداری مشتریان** (unpaid sales invoice balances aged by invoice date), and **اجناس با موجودی کم** (stock at/below its configured reorder point).
 - Click **سال مالی** in the sidebar to pick a year; the yearly summary cards and sales/purchase charts use that year. Debt balances and current inventory are snapshots of all records, *not* restricted to the chosen fiscal year.
-- Click **تنظیمات** and use **نام عمده‌فروشی** to set your company name; it immediately replaces the default sidebar heading. Settings are persisted in browser localStorage using the separate key `afghan-wholesale-ui-preferences`.
+- Click **تنظیمات** and use **نام عمده‌فروشی** to set your company name; it immediately replaces the default sidebar heading. Settings are persisted using the new `afghan-wholesale-fresh-v1-preferences` browser storage key.
 - Click **راهنمای سامانه** for an interactive help page with links to business sections.
-- Click the bottom **user profile** or top-bar user chip to edit the display name and job title. The label is NOT an authentication role; login/permissions are not yet implemented.
+- Click the bottom **user profile** or top-bar user chip to edit the display name and job title. Browser-local demo roles and login are included; they are not server-enforced.
 - The top-bar bell displays a low-stock notice when relevant.
-- Existing business records use the original key `afghan-wholesale-ui-data` and are not reset by this update.
+- New installations use isolated `afghan-wholesale-fresh-v1-*` keys and begin empty. Older records in `afghan-wholesale-ui-*` are not deleted, but are not automatically imported.
 
 **Privacy / limitations:** This is still a React-only prototype without user accounts or a shared database. Browser storage is device- and origin-specific; do not enter real customer financial information into a public demo. This version does not claim production-quality financial-year closing, audit trails, or user permissions.
 
