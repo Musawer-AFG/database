@@ -58,11 +58,27 @@ import {
   BoxesIcon,
   ClipboardCheck,
   CalendarCheck2,
+  ShieldCheck,
+  LockKeyhole,
+  UserPlus,
+  ShieldAlert,
+  KeyRound,
+  EyeOff,
+  ChevronLeft,
+  ChevronRight,
+  CalendarClock,
 } from "lucide-react";
 import { AFGHAN_MONTHS, DEFAULT_WAREHOUSE, afghanCalendarParts, afghanDateOrder, isInAfghanRange, cash, inventoryState, findProduct, saleStockError, payrollAmounts, journalBalances, reportSummary } from "./business.js";
 import "./styles.css";
 import "./responsive.css";
 import { AFGHAN_PROVINCES, AFGHAN_FIELD_CHOICES, dateChoiceParts, buildAfghanDate } from "./afghanLocale.js";
+import { customerDebtAging, monthlySalesPurchases, lowStockProducts, financialYearOptions, financialYearRecordCount, afghanDateDayNumber } from "./dashboardMetrics.js";
+import { PERMISSION_GROUPS, PAGE_PERMISSION, ENTITY_MANAGE_PERMISSION, INVOICE_PERMISSIONS, initialAccess, normalizeAccess, canDo, canOpenPage, availablePages, saveRoleRecord, removeRoleRecord, saveUserRecord, removeUserRecord, setAccountPassword, setRecoveryRecord } from "./accessControl.js";
+import { makeDemoCredential, verifyDemoCredential, normalizeUsername, validUsername, proposeUsername, makeTemporaryPassword } from "./demoAuth.js";
+import { createRecoveryCode, createRecoveryRecord, verifyRecoveryCode } from "./demoRecovery.js";
+import { quickSearch, transactionsForDay } from "./headerTools.js";
+import { employeeAccess, effectiveDemoAccess, kabulLocalDateTime, normalizeScheduleFields, validAfghanDateTime, validShiftTime } from "./workHours.js";
+import { CURRENCIES, CURRENCY_LABELS, DEFAULT_RATES, normalizeRates, currencyRate, toAfn, fromAfn, roundMoney, convertInvoiceToAfn } from "./exchange.js";
 
 const afghanMonths = [
   "حمل",
@@ -164,10 +180,10 @@ const navGroups = [
   {
     label: "مدیریت",
     icon: Settings,
-    items: [{ id: "settings", label: "تنظیمات" }],
+    items: [{ id: "settings", label: "تنظیمات" }, { id: "roles", label: "نقش‌ها و صلاحیت‌ها" }],
   },
 ];
-const allNavItems = navGroups.flatMap((g) => g.items);
+const allNavItems = [...navGroups.flatMap((g) => g.items), {id:"help",label:"راهنمای سامانه"},{id:"profile",label:"پروفایل کاربر"}];
 const navigationIcons = {
   dashboard: LayoutDashboard,
   sales: Receipt,
@@ -193,6 +209,7 @@ const navigationIcons = {
   debtors: Wallet,
   suppliers: ContactRound,
   settings: Settings,
+  roles: ShieldCheck,
 };
 
 const entityConfigs = {
@@ -417,8 +434,35 @@ function loadInitial() {
   }
 }
 
+const defaultPreferences = () => ({
+  shopName: "عمده فروشی",
+  fiscalYear: afghanCalendarParts().year,
+  userName: "حسابدار",
+  userTitle: "مدیر سیستم",
+  rates: {...DEFAULT_RATES},
+});
+function loadPreferences() {
+  const defaults = defaultPreferences();
+  try {
+    const stored = JSON.parse(localStorage.getItem("afghan-wholesale-ui-preferences") || "{}");
+    return {
+      ...defaults,
+      shopName: String(stored.shopName || defaults.shopName),
+      fiscalYear: Number(stored.fiscalYear) >= 1300 && Number(stored.fiscalYear) <= 1600 ? Number(stored.fiscalYear) : defaults.fiscalYear,
+      userName: String(stored.userName || defaults.userName),
+      userTitle: String(stored.userTitle || defaults.userTitle),
+      rates: normalizeRates(stored.rates),
+    };
+  } catch { return defaults; }
+}
 function App() {
   const [page, setPage] = useState("dashboard");
+  const [preferences, setPreferences] = useState(loadPreferences);
+  const [sidebarPopup, setSidebarPopup] = useState("");
+  const [showNotices, setShowNotices] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState("");
   const [expandedGroups, setExpandedGroups] = useState(
     () => new Set(["بل‌ها"]),
@@ -426,10 +470,67 @@ function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [data, setData] = useState(loadInitial);
+  const [access, setAccess] = useState(() => {
+    const prefs=loadPreferences();
+    try { return normalizeAccess(JSON.parse(localStorage.getItem("afghan-wholesale-ui-access") || "null"),prefs.userName,prefs.userTitle); }
+    catch { return initialAccess(prefs.userName,prefs.userTitle); }
+  });
+  // Demo-only browser session; real authentication MUST be implemented on the server.
+  const [kabulTick,setKabulTick] = useState(() => Date.now());
+  const [setupResult,setSetupResult] = useState(null);
+  const [sessionUserId,setSessionUserId] = useState(()=>{
+    try { return sessionStorage.getItem('afghan-wholesale-ui-demo-session') || null; } catch { return null; }
+  });
+  const [previewUserId, setPreviewUserId] = useState(null);
+  const demoLoginEnabled=!!access.users.find(u=>u.id==='admin-user')?.passwordHash;
+  const signedInUser=demoLoginEnabled ? access.users.find(u=>u.id===sessionUserId && u.active!==false && u.passwordHash) : access.users[0];
+  const needsLogin=demoLoginEnabled && !signedInUser;
+  const previewEmployee = previewUserId && signedInUser?.id==='admin-user'
+    ? (access.users.find(u=>u.id===previewUserId && !u.system) || null) : null;
+  const checkedAccess=effectiveDemoAccess(signedInUser,previewEmployee,new Date(kabulTick));
+  const workingAccess=checkedAccess.signedIn;
+  const shiftRestricted=demoLoginEnabled && !!signedInUser && !workingAccess.allowed;
+  const previewShiftRestricted=demoLoginEnabled && !!previewEmployee && !checkedAccess.preview?.allowed;
+  // Recheck Afghanistan time every five seconds, and immediately on tab focus/resume.
+  // Use the clock value for the access computation (rather than an unrelated rerender).
+  useEffect(()=>{
+    const refresh=()=>setKabulTick(Date.now());
+    const handle=setInterval(refresh,5000);
+    window.addEventListener('focus',refresh);
+    document.addEventListener('visibilitychange',refresh);
+    return ()=>{clearInterval(handle);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};
+  },[]);
+  // Synchronize saved shift/role changes across other tabs in this same browser.
+  // Different devices still need a real backend for shared access enforcement.
+  useEffect(()=>{
+    const syncAccess=event=>{
+      if(event.key!=='afghan-wholesale-ui-access') return;
+      try {setAccess(normalizeAccess(JSON.parse(event.newValue||'null'),loadPreferences().userName,loadPreferences().userTitle));}
+      catch { /* Ignore a malformed value from another tab. */ }
+      setKabulTick(Date.now());
+    };
+    window.addEventListener('storage',syncAccess);
+    return ()=>window.removeEventListener('storage',syncAccess);
+  },[]);
+  const activeUserId = previewEmployee?.id || (signedInUser?.id || 'admin-user');
+  const activeUser = access.users.find(u=>u.id===activeUserId) || access.users[0];
+  const activeRole = access.roles.find(r=>r.id===activeUser.roleId);
+  const can = (permission) => !shiftRestricted && !previewShiftRestricted && !!signedInUser && canDo(access,activeUserId,permission);
+  const canView = (pageId) => !shiftRestricted && !previewShiftRestricted && !!signedInUser && canOpenPage(access,activeUserId,pageId);
+  const requirePermission = (permission) => {
+    if(can(permission)) return true;
+    notify("شما برای این عملیات صلاحیت ندارید.");
+    return false;
+  };
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
+  const foundItems = useMemo(() => quickSearch(data,search,access,activeUserId),[data,search,access,activeUserId]);
+  const goToSearchResult = item => {
+    setCurrentPage(item.page,item.match);
+    setSearchOpen(false);
+  };
   const [toast, setToast] = useState("");
   const [invoiceItems, setInvoiceItems] = useState([
     { product: "", quantity: 1, price: "", discount: 0 },
@@ -455,6 +556,12 @@ function App() {
     localStorage.setItem("afghan-wholesale-ui-data", JSON.stringify(data));
   }, [data]);
   useEffect(() => {
+    localStorage.setItem("afghan-wholesale-ui-preferences", JSON.stringify(preferences));
+  }, [preferences]);
+  useEffect(() => {
+    localStorage.setItem("afghan-wholesale-ui-access", JSON.stringify(access));
+  }, [access]);
+  useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 2800);
     return () => clearTimeout(t);
@@ -462,15 +569,166 @@ function App() {
 
   const currentTitle =
     allNavItems.find((x) => x.id === page)?.label || "داشبورد";
-  const setCurrentPage = (id) => {
+  const setCurrentPage = (id, searchTerm="") => {
+    if (!canView(id)) { notify("شما به این بخش دسترسی ندارید."); setMobileMenu(false); return; }
     setPage(id);
-    setSearch("");
+    setSearch(searchTerm);
+    setAccountOpen(false);
+    setCalendarOpen(false);
+    setSearchOpen(false);
     setOpenMenu("");
+    setSidebarPopup("");
+    setShowNotices(false);
     setMobileMenu(false);
   };
   const notify = (message) => setToast(message);
+  const changeFiscalYear = (year) => {
+    const target=Number(year);
+    if(target === preferences.fiscalYear) return true;
+    if (!requirePermission("settings.manage")) return false;
+    if (financialYearRecordCount(data,target)===0) {
+      notify(`برای سال مالی ${number(target)} معلوماتی موجود نیست. سال قبلی تغییر نکرد.`);
+      return false;
+    }
+    setPreferences(previous=>({...previous,fiscalYear:target}));
+    notify(`سال مالی ${number(target)} انتخاب شد.`);
+    return true;
+  };
+  const savePreferences = (changes) => {
+    if (!requirePermission("settings.manage")) return false;
+    if (changes.fiscalYear != null && Number(changes.fiscalYear) !== preferences.fiscalYear) {
+      if (!changeFiscalYear(changes.fiscalYear)) return false;
+    }
+    setPreferences(previous => ({...previous, ...changes}));
+    notify("تنظیمات ذخیره شد.");
+    return true;
+  };
+  const saveProfile = (changes) => {
+    if(!requirePermission('profile.edit')) return false;
+    setAccess(prev=>({...prev, users:prev.users.map(u=>u.id===activeUserId?{...u,name:String(changes.userName||u.name),title:String(changes.userTitle||u.title)}:u)}));
+    if(activeUserId==='admin-user') setPreferences(prev=>({...prev,userName:changes.userName||prev.userName,userTitle:changes.userTitle||prev.userTitle}));
+    notify("پروفایل ذخیره شد.");
+    return true;
+  };
+  const saveRole = record => {
+    if(!can('roles.manage')) return notify('شما صلاحیت مدیریت نقش‌ها را ندارید.');
+    try { const next=saveRoleRecord(access,record); setAccess(next); notify('نقش ذخیره شد.'); return true; }
+    catch(error){notify(error.message);return false;}
+  };
+  const deleteRole = id => {
+    if(!requirePermission('roles.manage')) return false;
+    try { const next=removeRoleRecord(access,id); setAccess(next); notify('نقش حذف شد.'); return true; }
+    catch(error){notify(error.message);return false;}
+  };
+  const saveUser = async (record,rawPassword='') => {
+    if(!requirePermission('roles.manage')) return false;
+    try {
+      if(record.employeeId && !data.employees.some(e=>String(e.id)===String(record.employeeId)))
+        throw Error('کارمند انتخاب‌شده در فهرست کارمندان پیدا نشد.');
+      const employee = data.employees.find(e=>String(e.id)===String(record.employeeId));
+      const normalized = {...record,name:employee ? [employee.firstName,employee.lastName].filter(Boolean).join(' ').trim():record.name,
+        title:employee?.position||record.title};
+      if(!normalized.employeeId) throw Error('ابتدا یک کارمند از فهرست انتخاب کنید.');
+      if(!validUsername(normalized.username)) throw Error('نام کاربری حداقل ۳ حرف انگلیسی دارد؛ فقط حروف، عدد و . _ - مجاز است.');
+      if(!normalized.id && !rawPassword) throw Error('برای کاربر جدید رمز موقت تعیین کنید.');
+      if(rawPassword) Object.assign(normalized,await makeDemoCredential(rawPassword),{mustChangePassword:true});
+      const next=saveUserRecord(access,normalized);
+      setAccess(next); notify('حساب کارمند و نقش او ذخیره شد.'); return true;
+    } catch(error) {notify(error.message);return false;}
+  };
+  const activateDemoLogin=async (username,rawPassword) => {
+    if(!requirePermission('roles.manage')) return false;
+    try {
+      const credential=await makeDemoCredential(rawPassword);
+      const next=setAccountPassword(access,'admin-user',credential,{username,mustChangePassword:false});
+      const recoveryCode=createRecoveryCode();
+      const record=await createRecoveryRecord(recoveryCode,{days:365});
+      setAccess(setRecoveryRecord(next,'admin-user',record));
+      // First-run setup goes to the login page. Admin password changes keep the existing session.
+      if(!demoLoginEnabled) {
+        sessionStorage.removeItem('afghan-wholesale-ui-demo-session');
+        setSessionUserId(null);
+        setSetupResult({username,recoveryCode});
+      }
+      notify('صفحهٔ ورود نمایشی فعال شد. کد بازیابی مدیر را در جای امن نگه دارید.');
+      return {ok:true,recoveryCode};
+    } catch(error) {notify(error.message);return false;}
+  };
+  const issueRecovery=async userId => {
+    if(!requirePermission('roles.manage')) return null;
+    try {
+      const user=access.users.find(u=>u.id===userId);
+      if(!user) throw Error('کاربر یافت نشد.');
+      const code=createRecoveryCode();
+      const record=await createRecoveryRecord(code,{days:user.system?365:1});
+      setAccess(previous=>setRecoveryRecord(previous,userId,record));
+      notify('کد بازیابی ساخته شد. فقط به صاحب حساب بدهید.');
+      return {username:user.username,code,expires:record.recoveryExpires};
+    } catch(error) {notify(error.message);return null;}
+  };
+  const resetDemoPassword=async (username,recoveryCode,newPassword) => {
+    try {
+      const user=access.users.find(u=>u.active!==false && normalizeUsername(u.username)===normalizeUsername(username));
+      if(!user || !(await verifyRecoveryCode(recoveryCode,user))) return {ok:false};
+      const credential=await makeDemoCredential(newPassword);
+      let next=setAccountPassword(access,user.id,credential,{mustChangePassword:false});
+      let newAdminCode=null;
+      if(user.system) {
+        newAdminCode=createRecoveryCode();
+        const record=await createRecoveryRecord(newAdminCode,{days:365});
+        next=setRecoveryRecord(next,user.id,record);
+      }
+      setAccess(next);
+      notify('رمز تغییر کرد. اکنون با رمز تازه وارد شوید.');
+      return {ok:true,newAdminCode};
+    } catch(error) {return {ok:false};}
+  };
+  const login=async (username,password) => {
+    const u=access.users.find(u=>u.active!==false&&normalizeUsername(u.username)===normalizeUsername(username));
+    if(!u || !await verifyDemoCredential(password,u)) return {ok:false,message:'نام کاربری یا رمز اشتباه است، یا حساب غیرفعال شده است.'};
+    const status=employeeAccess(u);
+    if(!status.allowed) return {ok:false,message:`${status.reason} وقت فعلی افغانستان: ${kabulLocalDateTime(new Date()).replace('T',' ')}`};
+    sessionStorage.setItem('afghan-wholesale-ui-demo-session',u.id);
+    setSessionUserId(u.id);setPreviewUserId(null);setPage('dashboard');setMobileMenu(false);
+    return {ok:true};
+  };
+  const logout=()=>{
+    if(!demoLoginEnabled) {notify('ابتدا ورود نمایشی را در بخش مدیریت فعال کنید.');return;}
+    sessionStorage.removeItem('afghan-wholesale-ui-demo-session');
+    setSessionUserId(null);setPreviewUserId(null);setPage('dashboard');setModal(null);setMobileMenu(false);
+  };
+  const changeOwnDemoPassword=async password=>{
+    try {
+      const credential=await makeDemoCredential(password);
+      setAccess(previous=>setAccountPassword(previous,activeUserId,credential,{mustChangePassword:false}));
+      notify('رمز نمایشی تغییر کرد.');return true;
+    } catch(error) {notify(error.message);return false;}
+  };
+  const deleteUser = id => {
+    if(!requirePermission('roles.manage')) return false;
+    try { const next=removeUserRecord(access,id); setAccess(next); notify('کاربر حذف شد.'); return true; }
+    catch(error){notify(error.message);return false;}
+  };
+  const previewAs = userId => {
+    if(!requirePermission('roles.manage')) return;
+    if(!access.users.some(u=>u.id===userId && !u.system)) return;
+    setPreviewUserId(userId);
+    const first=availablePages(access,userId).find(page=>page!=='profile' && page!=='help') || 'profile';
+    setPage(first);
+    setModal(null); setMobileMenu(false); setSidebarPopup('');
+    notify('حالت پیش‌نمایش نقش فعال شد؛ این ورود واقعی نیست.');
+  };
+  const leavePreview = () => {
+    setPreviewUserId(null); setPage('roles'); setModal(null); setMobileMenu(false);
+    notify('به حالت مدیر سیستم برگشتید.');
+  };
+  const years = financialYearOptions(data, preferences.fiscalYear);
+  const fiscalReport = useMemo(() => reportSummary(
+    data, `${preferences.fiscalYear}/01/01`, `${preferences.fiscalYear}/12/30`
+  ), [data, preferences.fiscalYear]);
 
   function openEntityForm(key, row = null) {
+    if(!requirePermission(ENTITY_MANAGE_PERMISSION[key])) return;
     setEditId(row?.id ?? null);
     setForm(row ? { ...row } : {});
     setModal({ type: "entity", key });
@@ -478,6 +736,7 @@ function App() {
   function saveEntity(e) {
     e.preventDefault();
     const key = modal.key;
+    if(!requirePermission(ENTITY_MANAGE_PERMISSION[key])) return;
     if (key === "products" && !String(form.name || "").trim()) { notify("نام محصول ضروری است."); return; }
     if (key === "products" && ["quantity", "cost", "price"].some(k => Number(form[k] || 0) < 0)) {
       notify("تعداد و قیمت محصول نباید منفی باشد."); return;
@@ -507,6 +766,10 @@ function App() {
     notify(editId ? "تغییرات ثبت شد." : "معلومات جدید ثبت شد.");
   }
   function deleteEntity(key, id) {
+    if(!requirePermission(ENTITY_MANAGE_PERMISSION[key])) return;
+    if(key==='employees' && access.users.some(u=>String(u.employeeId||'')===String(id))) {
+      notify('برای این کارمند حساب ورود موجود است. ابتدا حساب او را حذف کنید.');return;
+    }
     if (key === "products" && (
       data.invoices.some(inv => (inv.items || []).some(line => String(line.productId) === String(id) || line.product === data.products.find(p => p.id === id)?.name)) ||
       data.stockMovements.some(m => String(m.productId) === String(id))
@@ -523,28 +786,29 @@ function App() {
     notify("مورد حذف شد.");
   }
   function openInvoice(type) {
-    setInvoiceForm({ date: today, party: "", title: "", paid: 0, notes: "", warehouseId: DEFAULT_WAREHOUSE });
+    if(!requirePermission(INVOICE_PERMISSIONS[type]?.manage)) return;
+    setInvoiceForm({ date: today, party: "", title: "", paid: 0, notes: "", warehouseId: DEFAULT_WAREHOUSE, currency:"AFN" });
     setInvoiceItems([{ product: "", quantity: 1, price: "", discount: 0 }]);
     setModal({ type: "invoice", invoiceType: type });
   }
   function saveInvoice(e) {
     e.preventDefault();
+    if(!requirePermission(INVOICE_PERMISSIONS[modal.invoiceType]?.manage)) return;
     if (!invoiceItems.length) { notify("حداقل یک قلم در بل اضافه کنید."); return; }
     if (!invoiceItems.every(i => Number(i.quantity) > 0 && Number(i.price) >= 0 && Number(i.discount || 0) >= 0 && Number(i.discount || 0) <= Number(i.quantity) * Number(i.price))) {
       notify("تعداد، قیمت و تخفیف اقلام را بررسی کنید."); return;
     }
+    let converted;
+    try { converted=convertInvoiceToAfn(invoiceItems,invoiceForm.paid||0,invoiceForm.currency||'AFN',preferences.rates); }
+    catch(error) { notify(error.message); return; }
     const unknown = invoiceItems.find(i => !findProduct(i, data.products));
     if (unknown) { notify(`محصول «${unknown.product || "نامشخص"}» ثبت نشده است.`); return; }
     if (modal.invoiceType === "sale") {
       const error = saleStockError(data, invoiceItems, invoiceForm.warehouseId);
       if (error) { notify(error); return; }
     }
-    const subtotal = invoiceItems.reduce(
-      (s, i) =>
-        s + (Number(i.quantity) * Number(i.price) - Number(i.discount || 0)),
-      0,
-    );
-    const initialPaid = Number(invoiceForm.paid || 0);
+    const subtotal = converted.total;
+    const initialPaid = converted.paid;
     if (!Number.isFinite(initialPaid) || initialPaid < 0 || initialPaid > subtotal) {
       notify("مبلغ پرداخت‌شده باید بین صفر و مجموع بل باشد.");
       return;
@@ -559,10 +823,12 @@ function App() {
         data.invoices.filter((x) => x.type === modal.invoiceType).length + 1,
       type: modal.invoiceType,
       ...invoiceForm,
-      items: invoiceItems.map((x) => ({ ...x, productId: findProduct(x, data.products)?.id })),
+      currency:invoiceForm.currency||'AFN',exchangeRate:converted.rate,
+      foreignTotal:converted.foreignTotal,foreignPaid:converted.foreignPaid,
+      items: converted.items.map((x) => ({ ...x, productId: findProduct(x, data.products)?.id })),
       total: subtotal,
       paid: initialPaid,
-      balance: Math.max(0, Math.round((subtotal - initialPaid) * 100) / 100),
+      balance: converted.balance,
       payments: [],
       status: initialPaid >= subtotal ? "پرداخت کامل" : "پرداخت ناقص",
     };
@@ -572,6 +838,7 @@ function App() {
   }
   function deleteInvoice(id) {
     const existing = data.invoices.find(x => x.id === id);
+    if(!existing || !requirePermission(INVOICE_PERMISSIONS[existing.type]?.manage)) return;
     if (!existing) return;
     const before = inventoryState(data);
     const after = inventoryState({ ...data, invoices: data.invoices.filter(x => x.id !== id) });
@@ -585,13 +852,17 @@ function App() {
     notify("بل حذف شد و موجودی گدام به‌روز گردید.");
   }
   function openPayment(invoice) {
+    if(!requirePermission("sales.collect")) return;
     if (invoice.type !== "sale" || Number(invoice.balance || 0) <= 0) return;
-    setPaymentForm({ amount: "", date: today, notes: "" });
+    setPaymentForm({ amount: "", currency:"AFN", date: today, notes: "" });
     setModal({ type: "payment", invoiceId: invoice.id });
   }
   function savePayment(e) {
     e.preventDefault();
-    const amount = Number(paymentForm.amount);
+    if(!requirePermission("sales.collect")) return;
+    let amount;
+    try {amount=toAfn(paymentForm.amount,paymentForm.currency||'AFN',preferences.rates);}
+    catch(error) { notify(error.message); return; }
     const invoice = data.invoices.find((x) => x.id === modal.invoiceId && x.type === "sale");
     if (!invoice) { notify("بل فروش پیدا نشد."); return; }
     const remaining = Number(invoice.balance || 0);
@@ -606,6 +877,7 @@ function App() {
     const payment = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       amount,
+      sourceAmount:Number(paymentForm.amount),currency:paymentForm.currency||'AFN',exchangeRate:currencyRate(paymentForm.currency||'AFN',preferences.rates),
       date: paymentForm.date || today,
       notes: paymentForm.notes.trim(),
     };
@@ -627,12 +899,14 @@ function App() {
     notify("دریافت پول ثبت شد و مانده مشتری به‌روز گردید.");
   }
   function openStockMovement() {
+    if(!requirePermission("inventory.manage")) return;
     setStockMovementForm({ kind: "in", productId: "", warehouseId: DEFAULT_WAREHOUSE, fromWarehouseId: DEFAULT_WAREHOUSE,
       toWarehouseId: "", quantity: "", date: today, notes: "" });
     setModal({ type: "stock" });
   }
   function saveStockMovement(e) {
     e.preventDefault();
+    if(!requirePermission("inventory.manage")) return;
     const item = stockMovementForm;
     const qty = Number(item.quantity);
     if (!item.productId || !Number.isFinite(qty) || qty <= 0) { notify("محصول و تعداد معتبر انتخاب کنید."); return; }
@@ -647,6 +921,7 @@ function App() {
     setModal(null); notify("حرکت گدام ثبت شد.");
   }
   function openPayroll(selectedYear, selectedMonth) {
+    if(!requirePermission("payroll.manage")) return;
     const parts = afghanCalendarParts();
     setPayrollForm({ employeeId: "", year: String(selectedYear || parts.year), month: String(selectedMonth || parts.month), base: "", bonus: "0",
       deduction: "0", date: today, notes: "" });
@@ -654,6 +929,7 @@ function App() {
   }
   function savePayroll(e) {
     e.preventDefault();
+    if(!requirePermission("payroll.manage")) return;
     const record = payrollForm;
     const employee = data.employees.find(x => String(x.id) === String(record.employeeId));
     if (!employee) { notify("کارمند را انتخاب کنید."); return; }
@@ -672,22 +948,26 @@ function App() {
     setModal(null); notify("برگه معاش ثبت شد.");
   }
   function markPayrollPaid(id) {
+    if(!requirePermission("payroll.pay")) return;
     setData(prev => ({ ...prev, payroll: prev.payroll.map(x => x.id === id ? { ...x, status: "paid", paidDate: today } : x) }));
     notify("پرداخت معاش ثبت شد.");
   }
   function deletePayroll(id) {
+    if(!requirePermission("payroll.manage")) return;
     const record = data.payroll.find(x => x.id === id);
     if (record?.status === "paid") { notify("برگه پرداخت‌شده را نمی‌توان حذف کرد."); return; }
     setData(prev => ({ ...prev, payroll: prev.payroll.filter(x => x.id !== id) }));
     notify("برگه معاش حذف شد.");
   }
   function openJournal() {
+    if(!requirePermission("accounting.manage")) return;
     setForm({ name: "", date: today, notes: "" });
     setJournalItems([{ account: "", description: "", debit: 0, credit: 0 }]);
     setModal({ type: "journal" });
   }
   function saveJournal(e) {
     e.preventDefault();
+    if(!requirePermission("accounting.manage")) return;
     const debit = journalItems.reduce((s, x) => s + Number(x.debit || 0), 0);
     const credit = journalItems.reduce((s, x) => s + Number(x.credit || 0), 0);
     if (!journalItems.length || debit <= 0 || cash(debit) !== cash(credit) || journalItems.some(r => !String(r.account || "").trim() || (Number(r.debit||0)>0 && Number(r.credit||0)>0))) {
@@ -727,20 +1007,30 @@ function App() {
     [data],
   );
 
+  const lowStockCount = useMemo(() => lowStockProducts(data).length, [data]);
+  const dashboardTotals = {
+    ...totals, sales: fiscalReport.sales, purchases: fiscalReport.purchases,
+    expenses: fiscalReport.expenses, paidWages: fiscalReport.paidPayroll,
+  };
+
   function renderPage() {
+    if(!canView(page)) return <AccessDenied onBack={() => setCurrentPage(availablePages(access,activeUserId)[0] || 'help')} />;
     if (page === "dashboard")
       return (
         <Dashboard
           data={data}
-          totals={totals}
+          totals={dashboardTotals}
+          fiscalYear={preferences.fiscalYear}
+          userName={activeUser.name}
           onNavigate={setCurrentPage}
           onInvoice={openInvoice}
           onJournal={openJournal}
+          can={can}
         />
       );
     if (page === "warehouseDashboard")
       return (
-        <WarehouseDashboard data={data} totals={totals} onNavigate={setCurrentPage} onStock={openStockMovement} />
+        <WarehouseDashboard data={data} totals={totals} onNavigate={setCurrentPage} onStock={can('inventory.manage') ? openStockMovement : null} />
       );
     if (page === "customersDashboard")
       return (
@@ -748,11 +1038,11 @@ function App() {
           data={data}
           totals={totals}
           onNavigate={setCurrentPage}
-          onInvoice={openInvoice}
+          onInvoice={can('sales.manage') ? openInvoice : null}
         />
       );
     if (page === "debtors")
-      return <DebtorsPage data={data} onPayment={openPayment} onNavigate={setCurrentPage} />;
+      return <DebtorsPage data={data} onPayment={can('sales.collect') ? openPayment : null} onNavigate={setCurrentPage} />;
     if (
       page === "products" ||
       page === "groups" ||
@@ -768,9 +1058,9 @@ function App() {
           data={data}
           search={search}
           setSearch={setSearch}
-          onAdd={() => openEntityForm(page)}
-          onEdit={(r) => openEntityForm(page, r)}
-          onDelete={(id) => deleteEntity(page, id)}
+          onAdd={can(ENTITY_MANAGE_PERMISSION[page]) ? () => openEntityForm(page) : null}
+          onEdit={can(ENTITY_MANAGE_PERMISSION[page]) ? (r) => openEntityForm(page, r) : null}
+          onDelete={can(ENTITY_MANAGE_PERMISSION[page]) ? (id) => deleteEntity(page, id) : null}
           receivables={page === "customers" ? customerReceivables(data.invoices) : {}}
           inventory={inventoryState(data)}
         />
@@ -783,52 +1073,64 @@ function App() {
           data={data}
           search={search}
           setSearch={setSearch}
-          onAdd={() =>
+          onAdd={can(INVOICE_PERMISSIONS[page === 'sales' ? 'sale' : page === 'purchases' ? 'purchase' : 'return'].manage) ? () =>
             openInvoice(
               page === "sales"
                 ? "sale"
                 : page === "purchases"
                   ? "purchase"
                   : "return",
-            )
+            ) : null
           }
-          onDelete={deleteInvoice}
-          onPayment={openPayment}
+          onDelete={can(INVOICE_PERMISSIONS[page === 'sales' ? 'sale' : page === 'purchases' ? 'purchase' : 'return'].manage) ? deleteInvoice : null}
+          onPayment={can('sales.collect') ? openPayment : null}
         />
       );
     if (page === "journal")
       return (
         <JournalPage
           data={data}
-          onAdd={openJournal}
-          onDelete={(id) => {
+          onAdd={can('accounting.manage') ? openJournal : null}
+          onDelete={can('accounting.manage') ? (id) => {
             setData((p) => ({
               ...p,
               journals: p.journals.filter((x) => x.id !== id),
             }));
             notify("سند حذف شد.");
-          }}
+          } : null}
         />
       );
     if (page === "expenses")
-      return <ExpensesPage data={data} setData={setData} notify={notify} />;
+      return <ExpensesPage data={data} setData={setData} notify={notify} canManage={can('accounting.manage')} />;
     if (page === "payroll")
-      return <PayrollPage data={data} onNavigate={setCurrentPage} onAdd={openPayroll} onPaid={markPayrollPaid} onDelete={deletePayroll} />;
+      return <PayrollPage data={data} onNavigate={setCurrentPage} onAdd={can('payroll.manage') ? openPayroll : null} onPaid={can('payroll.pay') ? markPayrollPaid : null} onDelete={can('payroll.manage') ? deletePayroll : null} />;
     if (page === "attendance") return <AttendancePage data={data} />;
     if (["reports", "trialBalance", "journalReport", "ledgerReport", "documentReport"].includes(page))
       return <ReportsPage page={page} data={data} />;
-    if (page === "settings") return <SettingsPage notify={notify} />;
+    if (page === "settings") return <SettingsPage preferences={preferences} years={years} data={data} onSave={savePreferences} canManage={can('settings.manage')} />;
+    if (page === "roles") return <RolesPage access={access} employees={data.employees} demoLoginEnabled={demoLoginEnabled} onActivateDemoLogin={activateDemoLogin} onIssueRecovery={issueRecovery} onSaveRole={saveRole} onDeleteRole={deleteRole} onSaveUser={saveUser} onDeleteUser={deleteUser} onPreviewUser={previewAs} />;
+    if (page === "profile") return <ProfilePage preferences={{...preferences,userName:activeUser.name,userTitle:activeUser.title}} onSave={saveProfile} onNavigate={setCurrentPage} canEdit={can('profile.edit')} roleName={activeRole?.name||''} />;
+    if (page === "help") return <HelpPage onNavigate={setCurrentPage} canView={canView} />;
     return (
       <Dashboard
         data={data}
-        totals={totals}
+        totals={dashboardTotals}
+        fiscalYear={preferences.fiscalYear}
+        userName={activeUser.name}
         onNavigate={setCurrentPage}
         onInvoice={openInvoice}
         onJournal={openJournal}
+        can={can}
       />
     );
   }
 
+  if(!demoLoginEnabled || setupResult) return <DemoFirstSetup shopName={preferences.shopName} onSetup={activateDemoLogin} setupResult={setupResult} onContinue={()=>setSetupResult(null)}/>;
+  if(needsLogin) return <DemoLoginScreen shopName={preferences.shopName} onLogin={login} onRecover={resetDemoPassword}/>;
+  if(shiftRestricted) return <DemoShiftClosed shopName={preferences.shopName} user={signedInUser} status={workingAccess} onLogout={logout} now={new Date(kabulTick)}/>;
+  if(previewShiftRestricted) return <DemoShiftClosed shopName={preferences.shopName} user={previewEmployee} status={checkedAccess.preview} onLogout={leavePreview} preview now={new Date(kabulTick)}/>;
+  if(demoLoginEnabled && signedInUser?.mustChangePassword && !previewUserId)
+    return <DemoChangePasswordScreen shopName={preferences.shopName} user={signedInUser} onChangePassword={changeOwnDemoPassword}/>;
   return (
     <div
       className={`app-shell ${mobileMenu ? "sidebar-open" : ""} ${sidebarVisible ? "" : "sidebar-collapsed"}`}
@@ -836,9 +1138,9 @@ function App() {
     >
       <aside className="sidebar" dir="rtl" aria-label="منوی اصلی">
         <div className="sidebar-brand">
-          <div className="brand-mark">A</div>
+          <div className="brand-mark" aria-hidden="true"><span className="brand-initial">{preferences.shopName.trim().charAt(0) || "ع"}</span></div>
           <div className="brand-text">
-            <strong>عمده فروشی </strong>
+            <strong title={preferences.shopName}>{preferences.shopName}</strong>
             <small>سامانه مدیریت تجارت</small>
           </div>
           <button
@@ -849,19 +1151,46 @@ function App() {
             <X size={17} />
           </button>
         </div>
-        <div className="sidebar-period">
-          <span className="period-dot"></span>
-          <div>
-            <strong>سال مالی ۱۴۰۵</strong>
+        <button
+          type="button"
+          className="sidebar-period sidebar-period-button"
+          aria-expanded={sidebarPopup === "year"}
+          aria-controls="fiscal-year-picker"
+          onClick={() => setSidebarPopup(x => x === "year" ? "" : "year")}
+        >
+          <span className="period-dot" aria-hidden="true"></span>
+          <span className="sidebar-period-copy">
+            <strong>سال مالی {number(preferences.fiscalYear)}</strong>
             <small>{today}</small>
+          </span>
+          <ChevronDown className={sidebarPopup === "year" ? "rotate-chevron" : ""} size={15} />
+        </button>
+        {sidebarPopup === "year" && (
+          <div className="sidebar-year-menu" id="fiscal-year-picker">
+            <label htmlFor="sidebar-fiscal-year">انتخاب سال مالی</label>
+            <select
+              id="sidebar-fiscal-year"
+              disabled={!can('settings.manage')}
+              value={preferences.fiscalYear}
+              onChange={event => {
+                if(changeFiscalYear(Number(event.target.value))) {
+                  setSidebarPopup("");
+                  if(canView('dashboard')) setCurrentPage("dashboard");
+                }
+              }}
+            >
+              {years.map(year => <option value={year} key={year}>{number(year)} {year !== preferences.fiscalYear && !financialYearRecordCount(data,year) ? '— بدون معلومات' : ''}</option>)}
+            </select>
+            <small>اگر برای سال انتخاب‌شده ریکاردی وجود نداشته باشد، سال مالی تغییر نمی‌کند و پیغام نمایش داده می‌شود.</small>
           </div>
-          <ChevronDown size={15} />
-        </div>
+        )}
         <nav className="sidebar-nav">
           {navGroups.map((group) => {
+            const items=group.items.filter(item=>canView(item.id));
+            if(!items.length) return null;
             const Icon = group.icon;
             const expanded = expandedGroups.has(group.label);
-            const groupHasActivePage = group.items.some(
+            const groupHasActivePage = items.some(
               (item) => item.id === page,
             );
             return (
@@ -888,7 +1217,7 @@ function App() {
                 </button>
                 {expanded && (
                   <div className="side-nav-items">
-                    {group.items.map((item) => {
+                    {items.map((item) => {
                       const active = page === item.id;
                       const ItemIcon = navigationIcons[item.id] || FileText;
                       return (
@@ -916,24 +1245,23 @@ function App() {
           })}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-help">
-            <span className="help-icon">
-              <CircleHelp size={17} />
-            </span>
-            <div>
+          <button type="button" className="sidebar-help sidebar-action" onClick={() => setCurrentPage("help")}>
+            <span className="help-icon"><CircleHelp size={17} /></span>
+            <span className="sidebar-action-copy">
               <strong>راهنمای سامانه</strong>
               <small>راهنمای بخش‌های برنامه</small>
-            </div>
-            <ChevronDown size={14} />
-          </div>
-          <div className="sidebar-user">
-            <span className="avatar">ح</span>
-            <div>
-              <strong>حسابدار</strong>
-              <small>مدیر سیستم</small>
-            </div>
+            </span>
+            <ChevronDown size={14} className="help-chevron" />
+          </button>
+          {demoLoginEnabled && !previewUserId && <button type="button" className="sidebar-logout" onClick={logout}><LogOut size={16}/> خروج از حساب</button>}
+          <button type="button" className="sidebar-user sidebar-action" onClick={() => setCurrentPage("profile")}>
+            <span className="avatar">{activeUser.name.trim().charAt(0) || "ح"}</span>
+            <span className="sidebar-action-copy">
+              <strong>{activeUser.name}</strong>
+              <small>{activeRole?.name || activeUser.title}</small>
+            </span>
             <MoreHorizontal size={17} />
-          </div>
+          </button>
         </div>
       </aside>
       {mobileMenu && (
@@ -974,45 +1302,50 @@ function App() {
             </div>
           </div>
           <div className="top-actions">
-            <label className="top-search">
-              <Search size={16} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="جستجو در این صفحه..."
-              />
-            </label>
-            <span className="date-chip">
-              <CalendarDays size={15} />
-              {today}
-            </span>
-            <button
-              className="icon-btn notification-btn"
-              title="اعلان‌ها"
-              aria-label="اعلان‌ها"
-            >
-              <Bell size={17} />
-              <i></i>
-            </button>
-            <button className="user-chip">
-              <span className="avatar">ح</span>
-              <span>حسابدار</span>
-              <ChevronDown size={13} />
-            </button>
+            <QuickSearchBox search={search} onSearch={setSearch} results={foundItems} onSelect={goToSearchResult} open={searchOpen} setOpen={setSearchOpen} />
+            <div className="header-date-wrap" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget)) setCalendarOpen(false)}}>
+              <button type="button" className="date-chip date-chip-button" aria-expanded={calendarOpen} aria-label="باز کردن تقویم هجری شمسی" title="تقویم و فعالیت‌های روزانه" onClick={()=>{setCalendarOpen(v=>!v);setAccountOpen(false);setSearchOpen(false)}}><CalendarDays size={17}/><span>{today}</span></button>
+              {calendarOpen && <AfghanHeaderCalendar data={data} todayLabel={today} canView={canView} onNavigate={setCurrentPage} onClose={()=>setCalendarOpen(false)}/>}
+            </div>
+            <div className="header-notice-wrap">
+              <button
+                type="button"
+                className="icon-btn notification-btn"
+                title="اعلان‌ها"
+                aria-label="اعلان‌ها"
+                aria-expanded={showNotices}
+                onClick={() => setShowNotices(x => !x)}
+              ><Bell size={17} />{lowStockCount > 0 && <i />}</button>
+              {showNotices && <div className="notices-popover" role="status">
+                <strong>اعلان‌های گدام</strong>
+                <p>{lowStockCount > 0 ? `${number(lowStockCount)} محصول به موجودی کم رسیده است.` : "فعلاً اعلان تازه‌ای وجود ندارد."}</p>
+                <button type="button" className="text-btn" onClick={() => setCurrentPage("warehouseDashboard")}>دیدن گدام</button>
+              </div>}
+            </div>
+            <div className="header-account-wrap" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget)) setAccountOpen(false)}}>
+              <button type="button" className="user-chip" aria-expanded={accountOpen} aria-label="باز کردن منوی حساب کاربری" title="منوی حساب کاربری" onClick={()=>{setAccountOpen(v=>!v);setCalendarOpen(false);setSearchOpen(false)}}>
+                <span className="avatar">{activeUser.name.trim().charAt(0) || "ح"}</span>
+                <span>{activeUser.name}</span>
+                <ChevronDown size={15} className={accountOpen?'rotate-chevron':''}/>
+              </button>
+              {accountOpen && <div className="header-account-menu" role="menu">
+                <div className="account-menu-heading"><strong>{activeUser.name}</strong><small>{activeRole?.name || activeUser.title}</small></div>
+                <button type="button" role="menuitem" onClick={()=>setCurrentPage('profile')}><UserRound size={17}/> پروفایل کاربر</button>
+                {canView('settings') && <button type="button" role="menuitem" onClick={()=>setCurrentPage('settings')}><Settings size={17}/> تنظیمات عمده‌فروشی</button>}
+                {canView('roles') && <button type="button" role="menuitem" onClick={()=>setCurrentPage('roles')}><ShieldCheck size={17}/> کاربران و صلاحیت‌ها</button>}
+                {demoLoginEnabled && !previewUserId && <button type="button" role="menuitem" className="account-menu-danger" onClick={()=>{setAccountOpen(false);logout()}}><LogOut size={17}/> خروج از حساب</button>}
+                {!demoLoginEnabled && canView('roles') && <button type="button" role="menuitem" onClick={()=>setCurrentPage('roles')}><LockKeyhole size={17}/> فعال‌سازی صفحه ورود</button>}
+              </div>}
+            </div>
           </div>
         </header>
         <div className="mobile-search-bar">
-          <label className="mobile-search-input">
-            <Search size={18} aria-hidden="true" />
-            <span className="sr-only">جستجو در این صفحه</span>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="جستجو در این صفحه..."
-              aria-label="جستجو در این صفحه"
-            />
-          </label>
+          <QuickSearchBox mobile search={search} onSearch={setSearch} results={foundItems} onSelect={goToSearchResult} open={searchOpen} setOpen={setSearchOpen}/>
         </div>
+        {previewUserId && <div className="role-preview-banner" role="status" dir="rtl">
+          <ShieldAlert size={18} /> <span>پیش‌نمایش صلاحیت‌های <strong>{activeUser.name}</strong> — {activeRole?.name}. این حالت ورود واقعی نیست.</span>
+          <button type="button" className="btn secondary" onClick={leavePreview}>بازگشت به مدیر سیستم</button>
+        </div>}
         <main className="main-area">
           <div className="page-toolbar">
             <div>
@@ -1026,7 +1359,7 @@ function App() {
           {renderPage()}
         </main>
         <footer className="app-footer">
-          سامانه مدیریت عمده‌فروشی افغانستان <span>رابط کاربری React</span>
+          {preferences.shopName} <span>رابط کاربری React</span>
         </footer>
       </div>
       {toast && (
@@ -1061,6 +1394,7 @@ function App() {
               setForm={setForm}
               data={data}
               onSubmit={saveEntity}
+              rates={preferences.rates}
               onCancel={() => setModal(null)}
             />
           )}
@@ -1073,6 +1407,7 @@ function App() {
               items={invoiceItems}
               setItems={setInvoiceItems}
               onSubmit={saveInvoice}
+              rates={preferences.rates}
               onCancel={() => setModal(null)}
             />
           )}
@@ -1082,6 +1417,7 @@ function App() {
               form={paymentForm}
               setForm={setPaymentForm}
               onSubmit={savePayment}
+              rates={preferences.rates}
               onCancel={() => setModal(null)}
             />
           )}
@@ -1146,24 +1482,55 @@ function Panel({ title, action, children, className = "" }) {
     </section>
   );
 }
-function Dashboard({ data, totals, onNavigate, onInvoice, onJournal }) {
+function dashboardPreviewRecords(fiscalYear) {
+  const sales = [18000,25000,21000,31000,27000,35000,32000,46000,39000,51000,44000,58000];
+  const purchases = [13000,16000,15000,25000,19000,24000,21000,31000,29000,36000,30000,38000];
+  const invoices = [];
+  sales.forEach((value,index) => {
+    const date = `${fiscalYear}/${String(index+1).padStart(2,'0')}/10`;
+    invoices.push({id:`demo-sale-${index}`,type:"sale",date,total:value,paid:value,balance:0,items:[]});
+    invoices.push({id:`demo-buy-${index}`,type:"purchase",date,total:purchases[index],paid:purchases[index],balance:0,items:[]});
+  });
+  [15,45,75,120].forEach((days,index) => {
+    const date = afghanDate(new Date(Date.now()-days*86400000));
+    invoices.push({id:`demo-debt-${index}`,type:"sale",date,total:[12000,21000,9000,33000][index],paid:0,balance:[12000,21000,9000,33000][index],items:[]});
+  });
+  return {
+    invoices, products:[
+      {id:'demo-p1',name:'برنج درجه یک',unit:'بوری',quantity:5,reorder:15,cost:1500},
+      {id:'demo-p2',name:'روغن پنج لیتر',unit:'کارتن',quantity:8,reorder:18,cost:850},
+      {id:'demo-p3',name:'بوره',unit:'بوری',quantity:0,reorder:12,cost:1200},
+    ], stockMovements:[], warehouses:[],
+  };
+}
+function Dashboard({ data, totals, fiscalYear, userName, onNavigate, onInvoice, onJournal, can=()=>true }) {
+  const [sampleCharts,setSampleCharts] = useState(() => data.invoices.length===0 && data.products.length===0);
+  useEffect(() => {
+    if (data.invoices.length || data.products.length) setSampleCharts(false);
+  }, [data.invoices.length,data.products.length]);
+  const chartData = useMemo(() => sampleCharts ? dashboardPreviewRecords(fiscalYear) : data, [sampleCharts,data,fiscalYear]);
   const shortcuts = [
-    ["صدور بل فروش", () => onInvoice("sale"), Receipt],
-    ["صدور بل خرید", () => onInvoice("purchase"), ShoppingCart],
-    ["افزودن محصول", () => onNavigate("products"), Package],
-    ["ثبت طرف حساب", () => onNavigate("customers"), ContactRound],
-    ["ثبت سند حسابداری", onJournal, BookOpen],
-  ];
+    ["صدور بل فروش", () => onInvoice("sale"), Receipt, 'sales.manage'],
+    ["صدور بل خرید", () => onInvoice("purchase"), ShoppingCart, 'purchases.manage'],
+    ["افزودن محصول", () => onNavigate("products"), Package, 'inventory.manage'],
+    ["ثبت طرف حساب", () => onNavigate("customers"), ContactRound, 'customers.manage'],
+    ["ثبت سند حسابداری", onJournal, BookOpen, 'accounting.manage'],
+  ].filter(item=>can(item[3]));
   return (
     <>
       <div className="welcome-row">
         <div>
-          <h2>خوش آمدید، حسابدار</h2>
+          <h2>خوش آمدید، {userName}</h2>
           <p>نمای کلی فعالیت‌های تجارتی شما در سال مالی جاری</p>
         </div>
-        <span className="year-pill">سال مالی ۱۴۰۵</span>
+        <div className="dashboard-period-actions">
+          <span className="year-pill">سال مالی {number(fiscalYear)}</span>
+          <button type="button" className="btn secondary preview-charts-toggle" onClick={()=>setSampleCharts(x=>!x)}>
+            {sampleCharts ? "دیدن نمودارهای واقعی" : "نمایش نمودارهای نمونه"}
+          </button>
+        </div>
       </div>
-      <div className="shortcut-grid">
+      {shortcuts.length>0 && <div className="shortcut-grid">
         {shortcuts.map(([label, action, Icon]) => (
           <button className="shortcut" key={label} onClick={action}>
             <span>
@@ -1173,7 +1540,7 @@ function Dashboard({ data, totals, onNavigate, onInvoice, onJournal }) {
             <Plus size={14} className="shortcut-plus" />
           </button>
         ))}
-      </div>
+      </div>}
       <div className="stats-grid">
         <StatCard
           label="کل موجودی گدام"
@@ -1183,25 +1550,25 @@ function Dashboard({ data, totals, onNavigate, onInvoice, onJournal }) {
           note="به اساس بهای تمام‌شده موجودی فعلی"
         />
         <StatCard
-          label="درآمد از ابتدای سال"
+          label="فروشات سال مالی"
           value={money(totals.sales)}
           icon={TrendingUp}
           tone="green"
         />
         <StatCard
-          label="مصارف ثبت‌شده"
+          label="مصارف سال مالی"
           value={money(totals.expenses)}
           icon={TrendingDown}
           tone="rose"
         />
         <StatCard
-          label="معاشات پرداخت‌شده"
+          label="معاشات پرداخت‌شده سال مالی"
           value={money(totals.paidWages)}
           icon={ChartNoAxesCombined}
           tone="violet"
         />
         <StatCard
-          label="خرید از ابتدای سال"
+          label="خریداری‌های سال مالی"
           value={money(totals.purchases)}
           icon={ShoppingCart}
           tone="amber"
@@ -1213,12 +1580,24 @@ function Dashboard({ data, totals, onNavigate, onInvoice, onJournal }) {
           tone="cyan"
         />
       </div>
+      {sampleCharts && <div className="dashboard-demo-note" role="status"><AlertCircle size={17}/><span>این سه نمودار با ارقام نمونه برای پیش‌نمایش طراحی نمایش داده شده‌اند؛ این ارقام واقعی نیستند و در ریکاردهای فروشگاه ذخیره نمی‌شوند.</span></div>}
+      <div className="dashboard-insights-grid">
+        <Panel title="مقایسه فروشات و خریداری‌ها" action={<span className="muted-pill">سال {number(fiscalYear)}</span>}>
+          <SalesPurchaseChart data={chartData} fiscalYear={fiscalYear} />
+        </Panel>
+        <Panel title="تحلیل قرضداری مشتریان" action={<button className="text-btn" onClick={() => onNavigate("debtors")}>دیدن مشتریان بدهکار</button>}>
+          <DebtAgingChart data={chartData} />
+        </Panel>
+        <Panel title="اجناس با موجودی کم" action={<button className="text-btn" onClick={() => onNavigate("products")}>دیدن محصولات</button>}>
+          <LowStockDashboard data={chartData} />
+        </Panel>
+      </div>
       <div className="dashboard-grid">
         <Panel
           title="درآمد و مصارف ماهانه"
-          action={<span className="muted-pill">سال مالی ۱۴۰۵</span>}
+          action={<span className="muted-pill">سال مالی {number(fiscalYear)}</span>}
         >
-          <MonthlyOverview data={data} />
+          <MonthlyOverview data={data} fiscalYear={fiscalYear} />
         </Panel>
         <Panel
           title="بل‌های فروش پرداخت‌نشده"
@@ -1261,8 +1640,61 @@ function Dashboard({ data, totals, onNavigate, onInvoice, onJournal }) {
     </>
   );
 }
-function MonthlyOverview({ data }) {
-  const currentYear = afghanCalendarParts().year;
+function SalesPurchaseChart({data,fiscalYear}) {
+  const months=monthlySalesPurchases(data,fiscalYear);
+  const max=Math.max(1,...months.flatMap(m=>[m.sales,m.purchases]));
+  const totalSales=months.reduce((sum,m)=>sum+m.sales,0);
+  const totalPurchases=months.reduce((sum,m)=>sum+m.purchases,0);
+  if (!totalSales && !totalPurchases) return <EmptyState text="در این سال مالی هنوز بل فروش یا خرید ثبت نشده است."/>;
+  return <>
+    <div className="insight-legend"><span className="insight-sales-key">فروشات: {money(totalSales)}</span><span className="insight-purchases-key">خریداری‌ها: {money(totalPurchases)}</span></div>
+    <div className="insight-chart-scroll" role="region" aria-label="نمودار فروشات و خریداری‌ها به تفکیک ماه" tabIndex={0}>
+      <div className="insight-month-bars">
+        {months.map(month=><div className="insight-month" key={month.month} title={`${month.name} — فروشات: ${money(month.sales)}، خریداری‌ها: ${money(month.purchases)}`}>
+          <div className="insight-month-column">
+            <div className="insight-month-bar sale" style={{height:`${month.sales ? Math.max(3,month.sales/max*100):0}%`}}/>
+            <div className="insight-month-bar purchase" style={{height:`${month.purchases ? Math.max(3,month.purchases/max*100):0}%`}}/>
+          </div>
+          <span>{month.name}</span>
+        </div>)}
+      </div>
+    </div>
+    <p className="chart-note">برای دیدن مبلغ دقیق، روی ستون ماه نشانگر ببرید. در موبایل نمودار قابل کشیدن است.</p>
+  </>;
+}
+function DebtAgingChart({data}) {
+  const {buckets,unknown,unknownCount}=customerDebtAging(data);
+  const max=Math.max(1,...buckets.map(bucket=>bucket.total));
+  const sum=buckets.reduce((s,b)=>s+b.total,0)+unknown;
+  if (!sum) return <EmptyState text="در حال حاضر هیچ بل فروش پرداخت‌نشده‌ای ثبت نشده است."/>;
+  return <div className="insight-debt-list">
+    {buckets.map(bucket=><div className="insight-debt-row" key={bucket.key}>
+      <div className="insight-row-label"><span>{bucket.label}</span><strong>{money(bucket.total)}</strong></div>
+      <div className="insight-bar-track" role="img" aria-label={`${bucket.label}: ${money(bucket.total)} در ${number(bucket.count)} بل`}>
+        <div className={`insight-bar-fill debt debt-${bucket.key.replace('+','plus')}`} style={{width:`${bucket.total/max*100}%`}}/>
+      </div>
+      <small>{number(bucket.count)} بل</small>
+    </div>)}
+    {unknown>0&&<p className="chart-note">{number(unknownCount)} بل بدون تاریخ معتبر: {money(unknown)} (خارج از گروه‌بندی)</p>}
+    <p className="chart-note">مدت قرضداری از تاریخ صدور بل تا امروز محاسبه می‌شود. همهٔ بل‌های پرداخت‌نشده شامل اند.</p>
+  </div>;
+}
+function LowStockDashboard({data}) {
+  const items=lowStockProducts(data);
+  if (!items.length) return <EmptyState text="فعلاً جنس با موجودی کمتر یا مساوی نقطهٔ سفارش موجود نیست. برای هشدار، نقطهٔ سفارش محصولات را تعیین کنید."/>;
+  return <div className="insight-stock-list">
+    {items.slice(0,7).map(item=><div className="insight-stock-row" key={item.id}>
+      <div className="insight-row-label"><strong>{item.name}</strong><span>{number(item.quantity)} / {number(item.reorder)} {item.unit||''}</span></div>
+      <div className="insight-bar-track" role="img" aria-label={`${item.name}، موجودی ${number(item.quantity)}، نقطه سفارش ${number(item.reorder)}`}>
+        <div className={`insight-bar-fill stock ${Number(item.quantity)<=0?'empty-stock':''}`} style={{width:`${Math.max(0,Math.min(100,Number(item.quantity)/Number(item.reorder)*100))}%`}}/>
+      </div>
+    </div>)}
+    {items.length>7&&<span className="chart-note">{number(items.length-7)} جنس دیگر نیز موجودی کم دارند.</span>}
+    <p className="chart-note">موجودی فعلی نسبت به نقطهٔ سفارش هر محصول</p>
+  </div>;
+}
+function MonthlyOverview({ data, fiscalYear }) {
+  const currentYear = fiscalYear;
   const monthly = afghanMonths.map((name,index)=> {
     const period=`${currentYear}/${String(index+1).padStart(2,'0')}`;
     const summary=reportSummary(data,`${period}/01`,`${period}/${index < 6 ? '31' : '30'}`);
@@ -1349,7 +1781,7 @@ function WarehouseDashboard({ data, totals, onNavigate, onStock }) {
   return <>
     <PageHeading title="داشبورد گدام" description="موجودی زنده، حرکت اجناس و وضعیت گدام‌ها بر اساس بل‌ها و اصلاحات ثبت‌شده"
       actions={<><button className="btn secondary" onClick={() => onNavigate("products")}><Package size={16}/> محصولات</button>
-        <button className="btn primary" onClick={onStock}><ArrowLeftRight size={16}/> ثبت حرکت گدام</button></>}/>
+        {onStock && <button className="btn primary" onClick={onStock}><ArrowLeftRight size={16}/> ثبت حرکت گدام</button>}</>}/>
     <div className="stats-grid six">
       <StatCard label="ارزش موجودی" value={money(inventory.value)} icon={CircleDollarSign} tone="blue"/>
       <StatCard label="محصولات ثبت‌شده" value={number(inventory.rows.length)} icon={Package} tone="violet"/>
@@ -1385,9 +1817,9 @@ function CustomersDashboard({ data, totals, onNavigate, onInvoice }) {
         description="نمای کلی فروش مشتریان برای سال مالی جاری"
         actions={
           <>
-            <button className="btn primary" onClick={() => onInvoice("sale")}>
+            {onInvoice && <button className="btn primary" onClick={() => onInvoice("sale")}>
               <Plus size={15} /> صدور بل
-            </button>
+            </button>}
             <button
               className="btn secondary"
               onClick={() => onNavigate("customers")}
@@ -1473,9 +1905,9 @@ function EntityPage({
       >
         <Download size={15} /> خروجی CSV
       </button>
-      <button className="btn primary" onClick={onAdd}>
+      {onAdd && <button className="btn primary" onClick={onAdd}>
         <Plus size={16} /> {cfg.add}
-      </button>
+      </button>}
     </>
   );
   return (
@@ -1658,7 +2090,7 @@ function DebtorsPage({ data, onPayment, onNavigate }) {
               <td data-label="مجموع بل">{money(invoice.total)}</td>
               <td data-label="پرداخت‌شده">{money(invoice.paid)}</td>
               <td data-label="مانده"><strong>{money(invoice.balance)}</strong></td>
-              <td data-label="عملیات" className="table-action-cell"><button className="btn primary pay-action" onClick={()=>onPayment(invoice)}><Wallet size={15}/> ثبت دریافت پول</button></td>
+              <td data-label="عملیات" className="table-action-cell">{onPayment && <button className="btn primary pay-action" onClick={()=>onPayment(invoice)}><Wallet size={15}/> ثبت دریافت پول</button>}</td>
             </tr>)}
             {!outstanding.length && <tr className="empty-data-row"><td colSpan="7" className="empty-table-cell"><EmptyState text="در حال حاضر بل پرداخت‌نشده‌ای وجود ندارد."/></td></tr>}
           </tbody>
@@ -1667,9 +2099,10 @@ function DebtorsPage({ data, onPayment, onNavigate }) {
     </Panel>
   </>;
 }
-function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
+function PaymentForm({ invoice, form, setForm, rates, onSubmit, onCancel }) {
   if (!invoice) return <p>بل مورد نظر پیدا نشد.</p>;
-  const amount = Number(form.amount || 0);
+  let amount=0;let rate=0;
+  try {rate=currencyRate(form.currency||'AFN',rates);amount=toAfn(form.amount||0,form.currency||'AFN',rates);} catch {rate=0;}
   const remaining = Number(invoice.balance || 0);
   const previous = Array.isArray(invoice.payments) ? invoice.payments : [];
   return <form onSubmit={onSubmit} className="payment-form">
@@ -1680,8 +2113,16 @@ function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
       <div className="payment-summary-item"><span>مانده فعلی</span><strong>{money(remaining)}</strong></div>
     </div>
     <div className="modal-grid">
-      <label>مبلغ دریافت‌شده (افغانی)
-        <input type="number" min="0.01" max={remaining} step="0.01" inputMode="decimal" autoFocus required value={form.amount} onChange={(e)=>setForm({...form,amount:e.target.value})} placeholder="مبلغ دریافتی" />
+      <label>واحد پول دریافت
+        <select value={form.currency||'AFN'} onChange={e=>{
+          const next=e.target.value;
+          try {const afn=toAfn(Number(form.amount||0),form.currency||'AFN',rates);setForm({...form,currency:next,amount:form.amount===''?'':String(fromAfn(afn,next,rates))});} catch { /* requires rate */ }
+        }}>
+          {CURRENCIES.map(code=><option key={code} value={code} disabled={code!=='AFN'&&!normalizeRates(rates)[code]}>{CURRENCY_LABELS[code]}{code!=='AFN'&&!normalizeRates(rates)[code]?' — نرخ تعیین نشده':''}</option>)}
+        </select>
+      </label>
+      <label>مبلغ دریافت‌شده ({form.currency||'AFN'})
+        <input type="number" min="0.01" step="any" inputMode="decimal" autoFocus required value={form.amount} onChange={(e)=>setForm({...form,amount:e.target.value})} placeholder="مبلغ دریافتی" />
       </label>
       <label>تاریخ دریافت (هجری شمسی)
         <AfghanDatePicker required value={form.date} onChange={date=>setForm({...form,date})}/>
@@ -1690,6 +2131,7 @@ function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
     <label className="full-label">توضیحات (اختیاری)
       <textarea rows="2" value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="مثلاً دریافت نقدی از مشتری"/>
     </label>
+    <p className="info-note">{rate?`معادل افغانی: ${money(amount)} — نرخ ۱ ${form.currency||'AFN'} = ${number(rate)} AFN`:'این ارز نرخ ثبت‌شده ندارد؛ به تنظیمات بروید.'}</p>
     <div className="payment-result"><span>مانده بعد از دریافت</span><strong>{money(Math.max(0,remaining-(Number.isFinite(amount)?amount:0)))}</strong></div>
     {previous.length > 0 && <div className="payment-history">
       <strong>سوابق دریافت پول</strong>
@@ -1729,9 +2171,9 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
             >
               <Download size={15} /> خروجی CSV
             </button>
-            <button className="btn primary" onClick={onAdd}>
+            {onAdd && <button className="btn primary" onClick={onAdd}>
               <Plus size={16} /> {invoiceTitle(type)}
-            </button>
+            </button>}
           </>
         }
       />
@@ -1803,7 +2245,7 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
                   </td>
                   <td data-label="عملیات" className="table-action-cell">
                     <div className="row-actions">
-                      {type === "sale" && Number(row.balance || 0) > 0 && (
+                      {onPayment && type === "sale" && Number(row.balance || 0) > 0 && (
                         <button className="btn primary pay-action" onClick={() => onPayment(row)}>
                           <Wallet size={15} /> ثبت دریافت پول
                         </button>
@@ -1815,13 +2257,13 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
                       >
                         <Printer size={14} />
                       </button>
-                      <button
+                      {onDelete && <button
                         className="icon-btn small danger"
                         onClick={() => onDelete(row.id)}
                         title="حذف"
                       >
                         <Trash2 size={14} />
-                      </button>
+                      </button>}
                     </div>
                   </td>
                 </tr>
@@ -1854,9 +2296,9 @@ function JournalPage({ data, onAdd, onDelete }) {
             >
               <Download size={15} /> خروجی CSV
             </button>
-            <button className="btn primary" onClick={onAdd}>
+            {onAdd && <button className="btn primary" onClick={onAdd}>
               <Plus size={16} /> ایجاد سند
-            </button>
+            </button>}
           </>
         }
       />
@@ -1892,7 +2334,7 @@ function JournalPage({ data, onAdd, onDelete }) {
     </>
   );
 }
-function ExpensesPage({ data, setData, notify }) {
+function ExpensesPage({ data, setData, notify, canManage=true }) {
   const [form, setForm] = useState({
     name: "",
     amount: "",
@@ -1901,6 +2343,7 @@ function ExpensesPage({ data, setData, notify }) {
   });
   const save = (e) => {
     e.preventDefault();
+    if(!canManage){notify('صلاحیت ثبت مصارف را ندارید.');return;}
     setData((p) => ({
       ...p,
       expenses: [{ ...form, id: Date.now() }, ...p.expenses],
@@ -1940,7 +2383,7 @@ function ExpensesPage({ data, setData, notify }) {
           tone="green"
         />
       </div>
-      <Panel title="ثبت مصرف">
+      {canManage && <Panel title="ثبت مصرف">
         <form className="form-grid" onSubmit={save}>
           <label>
             نام مصرف
@@ -1979,7 +2422,7 @@ function ExpensesPage({ data, setData, notify }) {
             </button>
           </div>
         </form>
-      </Panel>
+      </Panel>}
       <Panel title="فهرست مصارف">
         <DataTable
           columns={[
@@ -2013,7 +2456,7 @@ function PayrollPage({ data, onNavigate, onAdd, onPaid, onDelete }) {
   return <>
     <PageHeading title="معاشات و دستمزد" description="محاسبه معاش ماهانه، ثبت کسورات و ثبت پرداخت کارمندان"
       actions={<><button className="btn secondary" onClick={()=>onNavigate('employees')}><Users size={16}/> کارمندان</button>
-        <button className="btn primary" onClick={()=>onAdd(year === 'all' ? current.year : year, month === 'all' ? current.month : month)}><Plus size={16}/> محاسبه معاش</button></>}/>
+        {onAdd && <button className="btn primary" onClick={()=>onAdd(year === 'all' ? current.year : year, month === 'all' ? current.month : month)}><Plus size={16}/> محاسبه معاش</button>}</>}/>
     <div className="filter-row">
       <label>ماه<select value={month} onChange={e=>setMonth(e.target.value)}><option value="all">تمام ماه‌ها</option>{afghanMonths.map((m,i)=><option key={m} value={i+1}>{m}</option>)}</select></label>
       <label>سال هجری شمسی<select value={year} onChange={e=>setYear(e.target.value)}><option value="all">همه سال‌ها</option>{[current.year-1,current.year,current.year+1].map(y=><option key={y} value={y}>{number(y)}</option>)}</select></label>
@@ -2034,7 +2477,7 @@ function PayrollPage({ data, onNavigate, onAdd, onPaid, onDelete }) {
           <td data-label="ناخالص">{money(v.gross)}</td><td data-label="کسورات">{money(v.deduction)}</td><td data-label="خالص">{money(v.net)}</td>
           <td data-label="وضعیت"><span className={`status ${p.status==='paid'?'success':'warning'}`}>{p.status==='paid'?'پرداخت شده':'پرداخت نشده'}</span></td>
           <td data-label="عملیات" className="table-action-cell"><div className="row-actions">
-            {p.status!=='paid' && <><button className="btn primary" onClick={()=>onPaid(p.id)}>ثبت پرداخت</button><button className="icon-btn small danger" title="حذف برگه" onClick={()=>onDelete(p.id)}><Trash2 size={15}/></button></>}
+            {p.status!=='paid' && <>{onPaid && <button className="btn primary" onClick={()=>onPaid(p.id)}>ثبت پرداخت</button>}{onDelete && <button className="icon-btn small danger" title="حذف برگه" onClick={()=>onDelete(p.id)}><Trash2 size={15}/></button>}</>}
           </div></td>
         </tr>})}{!rows.length && <tr className="empty-data-row"><td className="empty-table-cell" colSpan={8}><EmptyState text={data.employees.length ? 'برای این دوره برگه معاش ثبت نشده است. روی «محاسبه معاش» بزنید.' : 'ابتدا کارمند ثبت کنید و معاش ماهانه او را وارد نمایید.'}/></td></tr>}</tbody>
       </table></div>
@@ -2187,52 +2630,474 @@ function ReportsPage({ page, data }) {
       'گزارش‌های حسابداری فعلاً فقط اسناد دستی ثبت‌شده در «اسناد حسابداری» را نمایش می‌دهند؛ بل‌ها هنوز به دفتر کل خودکار متصل نیستند.'}</p>
   </>;
 }
-function SettingsPage({ notify }) {
-  return (
-    <>
-      <PageHeading title="تنظیمات" description="تنظیمات عمومی رابط کاربری" />
-      <Panel title="تنظیمات زبان و نمایش">
-        <div className="settings-list">
-          <div>
-            <strong>زبان برنامه</strong>
-            <span>دری افغانستان</span>
-          </div>
-          <div>
-            <strong>جهت نمایش</strong>
-            <span>راست به چپ (RTL)</span>
-          </div>
-          <div>
-            <strong>تقویم</strong>
-            <span>هجری شمسی با ماه‌های افغانستان</span>
-          </div>
-          <div>
-            <strong>واحد پول</strong>
-            <span>افغانی (AFN)</span>
-          </div>
-          <div>
-            <strong>نمایش اعداد</strong>
-            <span>اعداد دری افغانستان</span>
-          </div>
-        </div>
-        <button
-          className="btn secondary"
-          onClick={() => {
-            localStorage.removeItem("afghan-wholesale-ui-data");
-            window.location.reload();
-          }}
-        >
-          <RotateCcw size={15} /> پاک‌کردن معلومات نمایشی مرورگر
-        </button>
+function AccessDenied({onBack}) {
+  return <Panel title="دسترسی محدود">
+    <div className="role-access-denied" role="alert">
+      <LockKeyhole size={30}/>
+      <h3>شما به این بخش دسترسی ندارید</h3>
+      <p>برای مشاهده یا تغییر معلومات این بخش، با مدیر سیستم صحبت کنید.</p>
+      <button type="button" className="btn secondary" onClick={onBack}>بازگشت به بخش‌های مجاز</button>
+    </div>
+  </Panel>;
+}
+
+function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIssueRecovery,onSaveRole,onDeleteRole,onSaveUser,onDeleteUser,onPreviewUser}) {
+  const [tab,setTab]=useState('users');
+  const [roleDraft,setRoleDraft]=useState({id:'',name:'',permissions:[]});
+  const emptyUser=()=>({id:'',employeeId:'',name:'',title:'',roleId:access.roles.find(r=>r.id!=='admin')?.id || 'seller',username:'',password:'',confirmPassword:'',active:true,...normalizeScheduleFields()});
+  const [userDraft,setUserDraft]=useState(emptyUser);
+  const [adminDraft,setAdminDraft]=useState({username:access.users.find(u=>u.system)?.username||'admin',password:'',confirmPassword:''});
+  const [showAdminReset,setShowAdminReset]=useState(false);
+  const [editingRole,setEditingRole]=useState(false);
+  const [editingUser,setEditingUser]=useState(false);
+  const [working,setWorking]=useState(false);
+  const [formError,setFormError]=useState('');
+  const [recoveryShown,setRecoveryShown]=useState(null);
+  const roleById=id=>access.roles.find(r=>r.id===id);
+  const [localClock,setLocalClock]=useState(()=>Date.now());
+  useEffect(()=>{const refresh=()=>setLocalClock(Date.now());const h=setInterval(refresh,10000);return ()=>clearInterval(h);},[]);
+  const nowAfghanistan=new Date(localClock);
+  const issueCode=async userId=>{
+    setWorking(true); const result=await onIssueRecovery(userId);setWorking(false);
+    if(result) setRecoveryShown(result);
+  };
+  const recoveryPanel=recoveryShown && <div className="recovery-code-panel" role="status">
+    <strong>کد بازیابی حساب: <span dir="ltr">{recoveryShown.username}</span></strong>
+    <code dir="ltr">{recoveryShown.code}</code>
+    <small>این کد فقط یک‌بار نمایش داده می‌شود. آن را خصوصی به کارمند بدهید. تا {new Date(recoveryShown.expires).toLocaleString('fa-AF')} معتبر است.</small>
+    <div className="role-item-actions"><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(recoveryShown.code)}><ClipboardList size={16}/> کاپی کد</button><button type="button" className="btn secondary" onClick={()=>setRecoveryShown(null)}>پنهان کردن کد</button></div>
+  </div>;
+  const startRole=role=>{setTab('roles');setFormError('');setRoleDraft(role?{id:role.id,name:role.name,permissions:[...role.permissions]}:{id:'',name:'',permissions:[]});setEditingRole(true);};
+  const startUser=user=>{setTab('users');setFormError('');setUserDraft(user?{id:user.id,employeeId:user.employeeId||'',name:user.name,title:user.title||'',roleId:user.roleId,username:user.username||'',password:'',confirmPassword:'',active:user.active!==false,...normalizeScheduleFields(user)}:emptyUser());setEditingUser(true);};
+  const chooseEmployee=id=>{
+    const employee=employees.find(e=>String(e.id)===String(id));
+    const used=new Set(access.users.filter(u=>u.id!==userDraft.id).map(u=>normalizeUsername(u.username)));
+    let proposed=employee ? proposeUsername(employee):'';
+    if(used.has(proposed)) {let n=2;while(used.has(`${proposed}-${n}`)) n++;proposed=`${proposed}-${n}`;}
+    setUserDraft(prev=>({...prev,employeeId:String(id),name:employee?[employee.firstName,employee.lastName].filter(Boolean).join(' ').trim():'',title:employee?.position||'',username:prev.id?prev.username:proposed}));
+  };
+  const togglePermission=key=>setRoleDraft(prev=>({...prev,permissions:prev.permissions.includes(key)?prev.permissions.filter(p=>p!==key):[...prev.permissions,key]}));
+  const submitRole=e=>{
+    e.preventDefault();setFormError('');
+    const name=roleDraft.name.trim();
+    if(!name){setFormError('نام نقش ضروری است.');return;}
+    if(access.roles.some(r=>r.name===name && r.id!==roleDraft.id)){setFormError('نام نقش تکراری است.');return;}
+    if(onSaveRole({...roleDraft,name})){setEditingRole(false);setRoleDraft({id:'',name:'',permissions:[]});}
+  };
+  const submitUser=async e=>{
+    e.preventDefault();setFormError('');
+    const employee=employees.find(e=>String(e.id)===String(userDraft.employeeId));
+    if(!employee){setFormError('اول کارمند را انتخاب کنید. اگر کارمند موجود نیست، در بخش کارمندان او را اضافه کنید.');return;}
+    if(access.users.some(u=>u.id!==userDraft.id && String(u.employeeId||'')===String(userDraft.employeeId))){setFormError('این کارمند حساب کاربری دارد.');return;}
+    if(!validUsername(userDraft.username)){setFormError('نام کاربری باید ۳ تا ۳۲ حرف انگلیسی یا عدد داشته باشد.');return;}
+    if(!roleById(userDraft.roleId)){setFormError('نقش معتبر انتخاب کنید.');return;}
+    if(!validShiftTime(userDraft.shiftStart)||!validShiftTime(userDraft.shiftEnd)||userDraft.shiftStart===userDraft.shiftEnd){setFormError('ساعت آغاز و ختم شیفت متفاوت و معتبر باشد.');return;}
+    if(userDraft.extraUntil && !validAfghanDateTime(userDraft.extraUntil)){setFormError('تاریخ و ساعت دسترسی اضافی معتبر نیست.');return;}
+    if(!userDraft.id && !userDraft.password){setFormError('برای حساب جدید رمز موقت تعیین کنید.');return;}
+    if(userDraft.password && userDraft.password.length<8){setFormError('رمز حداقل ۸ حرف یا عدد داشته باشد.');return;}
+    if(userDraft.password!==userDraft.confirmPassword){setFormError('تکرار رمز با رمز مطابقت ندارد.');return;}
+    setWorking(true);
+    const ok=await onSaveUser({...userDraft,name:[employee.firstName,employee.lastName].filter(Boolean).join(' ').trim(),title:employee.position||''},userDraft.password);
+    setWorking(false);
+    if(ok){setEditingUser(false);setUserDraft(emptyUser());}
+    else setFormError('ذخیره انجام نشد؛ نام کاربری تکراری و معلومات را بررسی کنید.');
+  };
+  const submitAdmin=async e=>{
+    e.preventDefault();setFormError('');
+    if(!validUsername(adminDraft.username)){setFormError('نام کاربری مدیر باید ۳ تا ۳۲ حرف انگلیسی یا عدد باشد.');return;}
+    if(adminDraft.password.length<8){setFormError('رمز مدیر حداقل ۸ حرف داشته باشد.');return;}
+    if(adminDraft.password!==adminDraft.confirmPassword){setFormError('رمزها یکسان نیستند.');return;}
+    setWorking(true);
+    const result=await onActivateDemoLogin(adminDraft.username,adminDraft.password);
+    setWorking(false);
+    if(result?.ok){
+      setAdminDraft(p=>({...p,password:'',confirmPassword:''}));setShowAdminReset(false);
+      setRecoveryShown({username:adminDraft.username,code:result.recoveryCode,expires:Date.now()+365*86400000});
+    }
+    else setFormError('تنظیم ورود انجام نشد؛ نام کاربری یا رمز را بررسی کنید.');
+  };
+  const linkedUserId=employeeId=>access.users.find(u=>String(u.employeeId||'')===String(employeeId))?.id;
+  return <>
+    <PageHeading title="نقش‌ها و صلاحیت‌ها" description="برای کارمندان حساب ورود بسازید و صلاحیت هر نقش را تعیین کنید."/>
+    <div className="role-demo-warning"><ShieldAlert size={19}/><span><strong>فقط نسخهٔ نمایشی:</strong> ورود و رمزها فقط در همین مرورگر نگهداری می‌شوند. حساب ساخته‌شده در کمپیوتر کارمند ظاهر نمی‌شود؛ برای ورود واقعی از دستگاه‌های مختلف به سرور و دیتابیس نیاز است.</span></div>
+    <div className="info-note" role="status"><Clock3 size={16}/> وقت فعلی افغانستان: <strong dir="ltr">{kabulLocalDateTime(nowAfghanistan).replace('T',' ')}</strong> — شیفت‌ها به همین وقت بررسی می‌شوند. <strong>حساب مدیر اصلی محدودیت ساعت ندارد.</strong> برای آزمایش واقعی از حساب کارمند وارد شوید؛ پیش‌نمایش کارمند نیز اکنون ساعت کاری را بررسی می‌کند.</div>
+    {demoLoginEnabled && !access.users.find(u=>u.system)?.recoveryHash && <div className="role-demo-warning"><KeyRound size={19}/><span>برای مدیر هنوز کد بازیابی وجود ندارد. پیش از خروج، از بخش کاربران روی «ساخت کد بازیابی» در حساب مدیر کلیک کنید.</span></div>}
+    <div className="role-tabs" role="tablist" aria-label="مدیریت کاربران و نقش‌ها">
+      <button type="button" role="tab" aria-selected={tab==='users'} className={`btn ${tab==='users'?'primary':'secondary'}`} onClick={()=>{setTab('users');setEditingRole(false);setFormError('')}}><Users size={16}/> کاربران ({number(access.users.length)})</button>
+      <button type="button" role="tab" aria-selected={tab==='roles'} className={`btn ${tab==='roles'?'primary':'secondary'}`} onClick={()=>{setTab('roles');setEditingUser(false);setFormError('')}}><ShieldCheck size={16}/> نقش‌ها ({number(access.roles.length)})</button>
+    </div>
+    {tab==='roles' && <>
+      <Panel title="فهرست نقش‌ها" action={<button type="button" className="btn primary" onClick={()=>startRole(null)}><Plus size={16}/> ایجاد نقش</button>}>
+        <div className="role-list">{access.roles.map(role=><div className="role-list-item" key={role.id}>
+          <div className="role-item-main"><span className="role-item-icon"><ShieldCheck size={21}/></span><div><strong>{role.name}</strong><small>{role.system?'نقش اصلی سیستم — قابل حذف نیست':`${number(role.permissions.length)} صلاحیت • ${number(access.users.filter(u=>u.roleId===role.id).length)} کاربر`}</small></div></div>
+          <div className="role-item-actions">{!role.system && <><button type="button" className="btn secondary" onClick={()=>startRole(role)}><Pencil size={15}/> ویرایش</button><button type="button" className="btn secondary danger-text" onClick={()=>{if(window.confirm(`نقش «${role.name}» حذف شود؟`)) onDeleteRole(role.id)}}><Trash2 size={15}/> حذف</button></>}</div>
+        </div>)}</div>
       </Panel>
-      <div className="notice-box">
-        <AlertCircle size={18} />
-        <span>
-          این نسخه فقط رابط کاربری React است. معلومات در مرورگر ذخیره می‌شود و
-          هنوز به سرور یا Supabase وصل نیست.
-        </span>
+      {editingRole && <Panel title={roleDraft.id?'ویرایش نقش':'ایجاد نقش جدید'}>
+        <form onSubmit={submitRole} className="roles-editor-form">
+          <label>نام نقش<input value={roleDraft.name} maxLength={60} required placeholder="مثلاً: مسئول فروشات" onChange={e=>setRoleDraft({...roleDraft,name:e.target.value})}/></label>
+          <div className="roles-editor-heading"><strong>تعیین صلاحیت‌ها</strong><div className="role-item-actions"><button type="button" className="btn secondary" onClick={()=>setRoleDraft({...roleDraft,permissions:PERMISSION_GROUPS.flatMap(g=>g.permissions.map(([k])=>k))})}>انتخاب همه</button><button type="button" className="btn secondary" onClick={()=>setRoleDraft({...roleDraft,permissions:[]})}>پاک کردن</button></div></div>
+          <div className="role-permission-grid">{PERMISSION_GROUPS.map(group=><fieldset className="role-permission-group" key={group.name}><legend>{group.name}</legend>{group.permissions.map(([key,label])=><label key={key} className="role-permission-item"><input type="checkbox" checked={roleDraft.permissions.includes(key)} onChange={()=>togglePermission(key)}/><span>{label}</span></label>)}</fieldset>)}</div>
+          {formError && <p className="form-error" role="alert">{formError}</p>}
+          <div className="role-item-actions"><button type="submit" className="btn primary"><Save size={17}/> ذخیره نقش</button><button type="button" className="btn secondary" onClick={()=>{setEditingRole(false);setFormError('')}}>لغو</button></div>
+        </form>
+      </Panel>}
+    </>}
+    {tab==='users' && <>
+      {recoveryPanel}
+      {(!demoLoginEnabled || showAdminReset) && <Panel title={demoLoginEnabled?'تغییر رمز مدیر در همین مرورگر':'فعال‌سازی صفحه ورود نمایشی'}>
+        <p className="info-note">برای اینکه کارمندان در همین مرورگر بتوانند رمز خود را آزمایش کنند، ابتدا نام کاربری و رمز مدیر را تعیین کنید. تا قبل از فعال‌سازی، برنامه مثل قبل بدون ورود باز می‌شود.</p>
+        <form className="business-settings-form role-user-form" onSubmit={submitAdmin} autoComplete="off">
+          <label>نام کاربری مدیر<input required dir="ltr" value={adminDraft.username} onChange={e=>setAdminDraft({...adminDraft,username:e.target.value})} placeholder="admin"/></label>
+          <label>رمز مدیر (حداقل ۸ حرف)<input required type="password" minLength={8} autoComplete="new-password" value={adminDraft.password} onChange={e=>setAdminDraft({...adminDraft,password:e.target.value})}/></label>
+          <label>تکرار رمز<input required type="password" minLength={8} autoComplete="new-password" value={adminDraft.confirmPassword} onChange={e=>setAdminDraft({...adminDraft,confirmPassword:e.target.value})}/></label>
+          {formError && <p role="alert" className="form-error">{formError}</p>}
+          <div className="role-item-actions"><button disabled={working} className="btn primary" type="submit"><LockKeyhole size={17}/> فعال‌سازی ورود نمایشی</button></div>
+        </form>
+      </Panel>}
+      {demoLoginEnabled && <div className="info-note">صفحهٔ ورود نمایشی فعال است. برای آزمایش با کاربر دیگر، از دکمهٔ «خروج از حساب» در پایین منو استفاده کنید. نام کاربری مدیر: <strong dir="ltr">{access.users.find(u=>u.system)?.username}</strong> <button type="button" className="btn secondary" onClick={()=>{setShowAdminReset(v=>!v);setFormError('')}}>تغییر رمز مدیر</button></div>}
+      <Panel title="کاربران و نقش‌های آن‌ها" action={<button type="button" className="btn primary" onClick={()=>startUser(null)}><UserPlus size={16}/> افزودن کاربر</button>}>
+        <div className="role-list">{access.users.map(user=><div className="role-list-item" key={user.id}>
+          <div className="role-item-main"><span className="role-user-avatar">{user.name.trim().charAt(0)||'ک'}</span><div><strong>{user.name}</strong><small>{user.title||'بدون عنوان'} • {roleById(user.roleId)?.name||'نقش نامشخص'}</small><small>نام کاربری: <b dir="ltr">{user.username||'تعیین نشده'}</b> • {user.passwordHash?'رمز تنظیم شده':'بدون رمز'} • {user.active===false?'غیرفعال':'فعال'}</small>{!user.system && <><small>شیفت {normalizeScheduleFields(user).shiftStart} تا {normalizeScheduleFields(user).shiftEnd} (وقت افغانستان){normalizeScheduleFields(user).extraUntil?` • اجازهٔ اضافی تا ${normalizeScheduleFields(user).extraUntil.replace('T',' ')}`:''}</small><small className={employeeAccess(user,nowAfghanistan).allowed?'shift-current-open':'shift-current-closed'}>{employeeAccess(user,nowAfghanistan).allowed?'● اکنون اجازهٔ ورود دارد':'● اکنون ورود بسته است'}{normalizeScheduleFields(user).extraUntil && employeeAccess(user,nowAfghanistan).allowed && !employeeAccess({...user,extraUntil:''},nowAfghanistan).allowed?' (با اجازهٔ اضافی)':''}</small></>}</div></div>
+          <div className="role-item-actions">{!user.system && <><button type="button" className="btn secondary" onClick={()=>onPreviewUser(user.id)}><Eye size={15}/> آزمایش صلاحیت</button><button type="button" className="btn secondary" onClick={()=>startUser(user)}><Pencil size={15}/> ویرایش / تنظیم رمز</button></>}
+          {demoLoginEnabled && <button type="button" className="btn secondary" disabled={working} onClick={()=>issueCode(user.id)}><KeyRound size={15}/> ساخت کد بازیابی</button>}
+          {!user.system && <button type="button" className="btn secondary danger-text" onClick={()=>{if(window.confirm(`کاربر «${user.name}» حذف شود؟`)) onDeleteUser(user.id)}}><Trash2 size={15}/> حذف</button>}
+          {user.system && <span className="muted-pill">مدیر اصلی</span>}</div>
+        </div>)}</div>
+      </Panel>
+      {editingUser && <Panel title={userDraft.id?'ویرایش حساب کارمند':'افزودن کاربر برای کارمند'}>
+        <form className="business-settings-form role-user-form" onSubmit={submitUser} autoComplete="off">
+          <label>انتخاب کارمند از فهرست کارمندان<select required value={userDraft.employeeId} onChange={e=>chooseEmployee(e.target.value)}><option value="">— کارمند را انتخاب کنید —</option>{employees.filter(employee=>!linkedUserId(employee.id)||linkedUserId(employee.id)===userDraft.id).map(employee=><option value={employee.id} key={employee.id}>{[employee.firstName,employee.lastName].filter(Boolean).join(' ')} — {employee.employeeCode||employee.position||'بدون کد'}</option>)}</select></label>
+          {!employees.length && <p className="form-error">هیچ کارمندی ثبت نشده است. نخست از منوی «منابع بشری ← کارمندان» کارمند اضافه کنید.</p>}
+          <div className="linked-employee-preview"><UserRoundCheck size={17}/><span>{userDraft.name||'نام کارمند پس از انتخاب نمایش داده می‌شود'}{userDraft.title?` — ${userDraft.title}`:''}</span></div>
+          <label>نام کاربری برای ورود (حروف انگلیسی)<input required dir="ltr" autoComplete="off" minLength={3} maxLength={32} value={userDraft.username} onChange={e=>setUserDraft({...userDraft,username:e.target.value.toLowerCase()})} placeholder="ahmad01"/></label>
+          <label>نقش کاربر<select value={userDraft.roleId} onChange={e=>setUserDraft({...userDraft,roleId:e.target.value})}>{access.roles.map(r=><option value={r.id} key={r.id}>{r.name}</option>)}</select></label>
+          <label>رمز موقت {userDraft.id?'(فقط برای تغییر رمز)':'(ضروری)'}
+            <div className="demo-password-row"><input type="text" autoComplete="off" minLength={8} value={userDraft.password} onChange={e=>setUserDraft({...userDraft,password:e.target.value})} placeholder="رمز موقت را بسازید"/><button type="button" className="btn secondary" onClick={()=>{const password=makeTemporaryPassword();setUserDraft({...userDraft,password,confirmPassword:password})}}><LockKeyhole size={15}/> ساخت رمز</button></div>
+          </label>
+          {userDraft.password && <label>تکرار رمز موقت<input type="text" value={userDraft.confirmPassword} onChange={e=>setUserDraft({...userDraft,confirmPassword:e.target.value})}/></label>}
+          {userDraft.password && <button type="button" className="btn secondary demo-copy-btn" onClick={()=>navigator.clipboard?.writeText(`نام کاربری: ${userDraft.username}\nرمز موقت: ${userDraft.password}`)}><ClipboardList size={16}/> کاپی معلومات ورود (فقط برای فرستادن خصوصی)</button>}
+          <div className="work-schedule-panel">
+            <h4><Clock3 size={17}/> محدودیت ساعت کاری — به وقت افغانستان</h4>
+            <div className="schedule-grid">
+              <label>شروع شیفت<input type="time" required value={userDraft.shiftStart} onChange={e=>setUserDraft(prev=>({...prev,shiftStart:e.target.value,extraUntil:''}))}/></label>
+              <label>ختم شیفت<input type="time" required value={userDraft.shiftEnd} onChange={e=>setUserDraft(prev=>({...prev,shiftEnd:e.target.value,extraUntil:''}))}/></label>
+            </div>
+            <small>به‌گونهٔ پیش‌فرض کارمند از ساعت ۰۸:۰۰ تا ۲۰:۰۰ وارد می‌شود. مدیر سیستم همیشه دسترسی دارد. با تغییر ساعت شیفت، اجازهٔ اضافی قبلی پاک می‌شود تا اشتباهاً کارمند پس از شیفت وارد نشود.</small>
+            <label>اجازهٔ اضافی تا تاریخ و ساعت مشخص (وقت افغانستان)
+              <input type="datetime-local" dir="ltr" value={userDraft.extraUntil||''} onChange={e=>setUserDraft({...userDraft,extraUntil:e.target.value})}/>
+            </label>
+            <div className="role-item-actions">
+              <button type="button" className="btn secondary" onClick={()=>setUserDraft({...userDraft,extraUntil:`${kabulLocalDateTime().slice(0,10)}T23:59`})}>اجازه برای امشب تا ۱۱:۵۹</button>
+              <button type="button" className="btn secondary" onClick={()=>setUserDraft({...userDraft,extraUntil:''})}>لغو اجازهٔ اضافی</button>
+            </div>
+            <div className="shift-live-preview" role="status">
+              <Clock3 size={16}/><span>نتیجهٔ همین حالا به وقت افغانستان: <strong>{employeeAccess({...userDraft,system:false},nowAfghanistan).allowed?'اجازهٔ ورود دارد':'ورود پس از شیفت بسته است'}</strong></span>
+            </div>
+            <small>اگر می‌خواهید کارمند خارج از شیفت دسترسی داشته باشد، باید عمداً «اجازهٔ اضافی» را تنظیم کنید. بعد از ختم ساعت، صفحه بسته می‌شود.</small>
+          </div>
+          <label className="demo-active-checkbox"><input type="checkbox" checked={userDraft.active} onChange={e=>setUserDraft({...userDraft,active:e.target.checked})}/> حساب کارمند فعال باشد</label>
+          {formError && <p className="form-error" role="alert">{formError}</p>}
+          <p className="info-note">رمز موقت را فقط به خود کارمند بدهید. پس از اولین ورود باید رمز را تغییر دهد. برای ورود واقعی در موبایل یا کمپیوتر دیگر، سرور ضروری است.</p>
+          <div className="role-item-actions"><button disabled={working||!employees.length} type="submit" className="btn primary"><Save size={17}/> ذخیره حساب کارمند</button><button type="button" className="btn secondary" onClick={()=>{setEditingUser(false);setFormError('')}}>لغو</button></div>
+        </form>
+      </Panel>}
+    </>}
+    <p className="info-note">نقش‌ها فقط در رابط نمایشی محدودیت ایجاد می‌کنند. تا زمان افزودن سرور، این ورود برای کارمندان واقعی یا معلومات حساس قابل استفاده نیست.</p>
+  </>;
+}
+
+function QuickSearchBox({search,onSearch,results,onSelect,open,setOpen,mobile=false}) {
+  return <div className={`header-search-wrap ${mobile?'mobile-search-wrapper':''}`} onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget)) setOpen(false)}}>
+    <label className={mobile?'mobile-search-input':'top-search'}>
+      <Search size={18} aria-hidden="true"/>
+      <input value={search} autoComplete="off" onFocus={()=>setOpen(true)} onChange={e=>{onSearch(e.target.value);setOpen(true)}}
+        onKeyDown={e=>{if(e.key==='Escape')setOpen(false);if(e.key==='Enter'&&results[0]){e.preventDefault();onSelect(results[0]);}}}
+        placeholder="جستجوی مشتری، جنس، بل، کارمند..." aria-label="جستجوی عمومی برنامه"/>
+      {search && <button type="button" className="search-clear" title="پاک کردن جستجو" aria-label="پاک کردن جستجو" onClick={()=>{onSearch('');setOpen(false)}}><X size={15}/></button>}
+    </label>
+    {open && search.trim().length>=2 && <div className="header-search-results" role="listbox" aria-label="نتایج جستجو">
+      <div className="search-results-heading">نتایج جستجوی عمومی <small>{number(results.length)} نتیجه</small></div>
+      {results.length ? results.map((item,index)=><button key={`${item.page}-${index}`} type="button" role="option" aria-selected="false" onClick={()=>onSelect(item)}>
+        <span className="result-title">{item.label}</span><small>{item.caption}</small><ChevronLeft size={16}/>
+      </button>) : <p className="header-search-empty">چیزی پیدا نشد. نام مشتری، محصول، نمبر بل یا نام کارمند را امتحان کنید.</p>}
+    </div>}
+  </div>;
+}
+function AfghanHeaderCalendar({data,todayLabel,canView,onNavigate,onClose}) {
+  const parts=dateChoiceParts(today)||{year:1405,month:1,day:1};
+  const [display,setDisplay]=useState({year:parts.year,month:parts.month});
+  const [selected,setSelected]=useState(buildAfghanDate(parts));
+  const move=amount=>setDisplay(prev=>{
+    const absolute=prev.year*12+prev.month-1+amount;
+    return {year:Math.floor(absolute/12),month:(absolute%12+12)%12+1};
+  });
+  const days=Array.from({length:31},(_,i)=>i+1).filter(day=>afghanDateDayNumber(buildAfghanDate({...display,day}))!==null);
+  const transactions=transactionsForDay(data,selected).filter(item=>canView(item.page));
+  const dateParts=dateChoiceParts(selected);
+  return <div className="header-calendar-popover" role="dialog" aria-label="تقویم و فعالیت‌ها">
+    <div className="calendar-popover-title"><strong>تقویم افغانستان</strong><button type="button" className="calendar-close" aria-label="بستن تقویم" onClick={onClose}><X size={17}/></button></div>
+    <div className="calendar-navigation">
+      <button type="button" onClick={()=>move(-1)} aria-label="ماه گذشته"><ChevronRight size={19}/></button>
+      <strong>{afghanMonths[display.month-1]} {number(display.year)}</strong>
+      <button type="button" onClick={()=>move(1)} aria-label="ماه آینده"><ChevronLeft size={19}/></button>
+    </div>
+    <div className="calendar-days">{days.map(day=><button key={day} type="button" aria-pressed={dateParts?.year===display.year && dateParts?.month===display.month && dateParts?.day===day} className={dateParts?.year===display.year&&dateParts?.month===display.month&&dateParts?.day===day?'selected':''} onClick={()=>setSelected(buildAfghanDate({...display,day}))}>{number(day)}</button>)}</div>
+    <button type="button" className="calendar-today" onClick={()=>{setDisplay({year:parts.year,month:parts.month});setSelected(buildAfghanDate(parts))}}>امروز: {todayLabel}</button>
+    <div className="calendar-transactions"><strong>فعالیت‌های {dateParts?`${number(dateParts.day)} ${afghanMonths[dateParts.month-1]} ${number(dateParts.year)}`:selected}</strong>
+      {transactions.length ? transactions.slice(0,8).map((x,i)=><button type="button" key={i} onClick={()=>onNavigate(x.page,x.label)}><span>{x.label}</span><small>{x.kind}{x.amount?` • ${money(x.amount)}`:''}</small></button>) : <p>در این تاریخ فروش، خرید یا سند ثبت نشده است.</p>}
+    </div>
+    <small className="calendar-local-info">تاریخ هجری شمسی — معلومات از همین مرورگر خوانده می‌شود.</small>
+  </div>;
+}
+
+function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
+  const [username,setUsername]=useState('admin');
+  const [password,setPassword]=useState('');
+  const [confirm,setConfirm]=useState('');
+  const [message,setMessage]=useState('');
+  const [busy,setBusy]=useState(false);
+  const submit=async event=>{
+    event.preventDefault();setMessage('');
+    if(!validUsername(username)){setMessage('نام کاربری باید بین ۳ و ۳۲ حرف انگلیسی یا عدد داشته باشد.');return;}
+    if(password.length<8){setMessage('رمز باید حداقل ۸ حرف داشته باشد.');return;}
+    if(password!==confirm){setMessage('تکرار رمز مطابقت ندارد.');return;}
+    setBusy(true);
+    try {const result=await onSetup(username,password);if(!result?.ok)setMessage('ساخت حساب مدیر انجام نشد.');}
+    catch {setMessage('ساخت حساب مدیر انجام نشد.');}
+    finally {setBusy(false);}
+  };
+  return <div className="demo-login-page" dir="rtl"><div className="demo-login-card">
+    <div className="demo-login-icon"><ShieldCheck size={27}/></div>
+    <div className="demo-login-brow">{shopName} — مرحلهٔ اول راه‌اندازی</div>
+    {setupResult ? <>
+      <h1>حساب مدیر ساخته شد</h1>
+      <p>کد بازیابی مدیر را در یک محل محفوظ نگه دارید. این کد فقط همین‌بار نمایش داده می‌شود.</p>
+      <div className="recovery-code-panel"><strong>نام کاربری: {setupResult.username}</strong><code dir="ltr">{setupResult.recoveryCode}</code><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(setupResult.recoveryCode)}>کاپی کد بازیابی</button></div>
+      <button className="btn primary login-back-button" type="button" onClick={onContinue}>رفتن به صفحه ورود</button>
+    </> : <>
+      <h1>ساخت حساب مدیر سیستم</h1>
+      <p>برای ورود به برنامه، ابتدا نام کاربری و رمز مدیر را تنظیم کنید. سپس تمام کاربران از صفحهٔ ورود وارد می‌شوند.</p>
+      <form className="demo-login-form" onSubmit={submit}>
+        <label>نام کاربری مدیر<input autoFocus dir="ltr" required value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} autoComplete="username"/></label>
+        <label>رمز مدیر<input dir="ltr" required type="password" minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/></label>
+        <label>تکرار رمز<input dir="ltr" required type="password" minLength={8} autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>
+        {message&&<p className="form-error" role="alert">{message}</p>}
+        <button type="submit" className="btn primary" disabled={busy}><ShieldCheck size={17}/>{busy?'در حال تنظیم...':'ساخت حساب مدیر'}</button>
+      </form>
+    </>}
+    <p className="demo-login-disclaimer"><ShieldAlert size={15}/><span>فقط نسخهٔ نمایشی مرورگر: این حساب در کمپیوترهای دیگر مشترک نیست و رمزها جایگزین امنیت سرور نیستند.</span></p>
+  </div></div>;
+}
+function DemoShiftClosed({shopName,user,status,onLogout,preview=false,now=new Date()}) {
+  return <div className="demo-login-page" dir="rtl"><div className="demo-login-card">
+    <div className="demo-login-icon"><Clock3 size={26}/></div>
+    <h1>{preview?'کارمند در این ساعت اجازهٔ ورود ندارد':'دسترسی بیرون از وقت کاری بسته است'}</h1>
+    <p>{user?.name}، {status.reason}</p>
+    <div className="info-note">وقت فعلی افغانستان: <strong dir="ltr">{kabulLocalDateTime(now).replace('T',' ')}</strong></div>
+    <p>{preview?'این پیش‌نمایش مطابق ساعت کاری کارمند بسته است. مدیر می‌تواند به پنل مدیریت برگردد یا اجازهٔ اضافی بدهد.':'مدیر سیستم می‌تواند در بخش «نقش‌ها و صلاحیت‌ها» برای شما دسترسی اضافی تا ساعت مشخص تعیین کند.'}</p>
+    <button className="btn primary login-back-button" type="button" onClick={onLogout}><LogOut size={17}/>{preview?'بازگشت به مدیر سیستم':'خروج از حساب'}</button>
+    <p className="demo-login-disclaimer">نسخهٔ نمایشی؛ قفل واقعی شیفت باید توسط سرور اجرا شود.</p>
+  </div></div>;
+}
+function DemoLoginScreen({shopName,onLogin,onRecover}) {
+  const [view,setView]=useState('login');
+  const [username,setUsername]=useState('');
+  const [password,setPassword]=useState('');
+  const [showPassword,setShowPassword]=useState(false);
+  const [code,setCode]=useState('');
+  const [newPassword,setNewPassword]=useState('');
+  const [confirmPassword,setConfirmPassword]=useState('');
+  const [newAdminCode,setNewAdminCode]=useState('');
+  const [message,setMessage]=useState('');
+  const [busy,setBusy]=useState(false);
+  const submitLogin=async event=>{
+    event.preventDefault();setMessage('');setBusy(true);
+    try {const result=await onLogin(username,password);if(!result?.ok)setMessage(result?.message||'نام کاربری یا رمز اشتباه است، یا حساب غیرفعال شده است.');}
+    catch {setMessage('امکان ورود نمایشی موجود نیست.');}
+    finally {setBusy(false);setPassword('');}
+  };
+  const submitRecovery=async event=>{
+    event.preventDefault();setMessage('');
+    if(newPassword.length<8){setMessage('رمز تازه باید حداقل ۸ حرف داشته باشد.');return;}
+    if(newPassword!==confirmPassword){setMessage('رمز تازه و تکرار آن یکسان نیستند.');return;}
+    setBusy(true);
+    try {
+      const result=await onRecover(username,code,newPassword);
+      if(!result?.ok) setMessage('کد بازیابی اشتباه یا منقضی شده است. از مدیر سیستم کد تازه بگیرید.');
+      else {setNewAdminCode(result.newAdminCode||'');setCode('');setPassword('');setNewPassword('');setConfirmPassword('');setView('success');}
+    } catch {setMessage('بازیابی رمز انجام نشد.');}
+    finally {setBusy(false);}
+  };
+  return <div className="demo-login-page" dir="rtl"><div className="demo-login-card">
+    <div className="demo-login-icon"><LockKeyhole size={27}/></div>
+    <div className="demo-login-brow">سامانه مدیریت عمده‌فروشی افغانستان</div>
+    <h1>{view==='login'?`ورود به ${shopName}`:view==='recover'?'بازیابی رمز ورود':'رمز شما تغییر کرد'}</h1>
+    {view==='login' ? <>
+      <p>با نام کاربری و رمز که مدیر سیستم به شما داده است وارد شوید. ساعت کاری با <strong>وقت افغانستان</strong> بررسی می‌شود.</p>
+      <form onSubmit={submitLogin} className="demo-login-form">
+        <label>نام کاربری<input autoFocus dir="ltr" required autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="ahmad01"/></label>
+        <label>رمز ورود<div className="login-password-control"><input dir="ltr" required type={showPassword?'text':'password'} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="رمز ورود"/><button type="button" className="password-eye" aria-label={showPassword?'پنهان کردن رمز':'نمایش رمز'} onClick={()=>setShowPassword(x=>!x)}>{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></label>
+        {message&&<p role="alert" className="form-error">{message}</p>}
+        <button className="btn primary" type="submit" disabled={busy}><LogOut size={17}/> {busy?'بررسی...':'ورود به برنامه'}</button>
+      </form>
+      <button type="button" className="login-text-link" onClick={()=>{setView('recover');setMessage('')}}><KeyRound size={16}/> رمز را فراموش کرده‌ام</button>
+    </> : view==='recover' ? <>
+      <p>اگر رمز را فراموش کردید، از مدیر سیستم یک <strong>کد بازیابی</strong> بگیرید. سپس در همین مرورگر رمز تازه تعیین کنید.</p>
+      <form onSubmit={submitRecovery} className="demo-login-form">
+        <label>نام کاربری<input autoFocus dir="ltr" required autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="ahmad01"/></label>
+        <label>کد بازیابی (از مدیر سیستم)<input dir="ltr" required value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="AF-XXXX-XXXX-XXXX-XXXX" autoComplete="off"/></label>
+        <label>رمز تازه<input dir="ltr" required minLength={8} type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)}/></label>
+        <label>تکرار رمز تازه<input dir="ltr" required minLength={8} type="password" autoComplete="new-password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)}/></label>
+        {message&&<p role="alert" className="form-error">{message}</p>}
+        <button disabled={busy} className="btn primary" type="submit"><KeyRound size={17}/> {busy?'بررسی کد...':'تغییر رمز با کد بازیابی'}</button>
+      </form>
+      <button type="button" className="login-text-link" onClick={()=>{setView('login');setMessage('')}}><ChevronRight size={16}/> بازگشت به ورود</button>
+    </> : <>
+      <p>اکنون می‌توانید با رمز تازه وارد برنامه شوید.</p>
+      {newAdminCode && <div className="recovery-code-panel" role="status"><strong>کد بازیابی تازه مدیر — این کد را خصوصی ذخیره کنید</strong><code dir="ltr">{newAdminCode}</code><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(newAdminCode)}>کاپی کد تازه</button></div>}
+      <button type="button" className="btn primary login-back-button" onClick={()=>{setView('login');setMessage('');setNewAdminCode('')}}>بازگشت به صفحه ورود</button>
+    </>}
+    <p className="demo-login-disclaimer"><ShieldAlert size={15}/> <span>نسخهٔ نمایشی: حساب‌ها، رمزها و بازیابی فقط در همین مرورگر کار می‌کنند؛ برای استفاده واقعی سرور و سیستم ورود امن لازم است.</span></p>
+  </div></div>;
+}
+
+function DemoChangePasswordScreen({shopName,user,onChangePassword}) {
+  const [password,setPassword]=useState('');const [confirm,setConfirm]=useState('');
+  const [error,setError]=useState('');const [busy,setBusy]=useState(false);
+  const submit=async e=>{e.preventDefault();setError('');
+    if(password.length<8){setError('رمز باید حداقل ۸ حرف داشته باشد.');return;}
+    if(password!==confirm){setError('رمزها یکسان نیستند.');return;}
+    setBusy(true);const ok=await onChangePassword(password);setBusy(false);
+    if(!ok)setError('تغییر رمز انجام نشد.');
+  };
+  return <div className="demo-login-page" dir="rtl"><div className="demo-login-card">
+    <div className="demo-login-icon"><ShieldCheck size={28}/></div><h1>تغییر رمز موقت</h1>
+    <p>{user.name}، برای ادامهٔ کار در {shopName} یک رمز تازه تعیین کنید.</p>
+    <form className="demo-login-form" onSubmit={submit}>
+      <label>رمز تازه<input autoFocus required minLength={8} type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password"/></label>
+      <label>تکرار رمز تازه<input required minLength={8} type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} autoComplete="new-password"/></label>
+      {error&&<p role="alert" className="form-error">{error}</p>}
+      <button className="btn primary" disabled={busy} type="submit"><Save size={17}/> ذخیره رمز و ورود</button>
+    </form><p className="demo-login-disclaimer">نسخهٔ نمایشی مرورگر — ورود واقعی هنوز به سرور متصل نیست.</p>
+  </div></div>;
+}
+
+function SettingsPage({ preferences, years, data, onSave, canManage=true }) {
+  const [shopName, setShopName] = useState(preferences.shopName);
+  const [fiscalYear, setFiscalYear] = useState(preferences.fiscalYear);
+  const [rates,setRates]=useState(()=>({...normalizeRates(preferences.rates)}));
+  const [rateError,setRateError]=useState('');
+  useEffect(() => { setShopName(preferences.shopName); setFiscalYear(preferences.fiscalYear); setRates({...normalizeRates(preferences.rates)}); }, [preferences.shopName, preferences.fiscalYear,preferences.rates]);
+  const save = event => {
+    event.preventDefault();
+    const name = shopName.trim();
+    if (!name) return;
+    setRateError('');
+    if(['USD','PKR'].some(code=>!Number.isFinite(Number(rates[code])) || Number(rates[code])<0 || Number(rates[code])>1000000)){
+      setRateError('نرخ ارز باید عدد معتبر باشد. نرخ صفر یعنی این ارز هنوز فعال نیست.');return;
+    }
+    if(!onSave({shopName:name.slice(0,90), fiscalYear:Number(fiscalYear),rates:normalizeRates(rates)})) setFiscalYear(preferences.fiscalYear);
+  };
+  return <>
+    <PageHeading title="تنظیمات" description="نام عمده‌فروشی و سال مالی را تنظیم کنید" />
+    <Panel title="معلومات عمده‌فروشی">
+      <form className="business-settings-form" onSubmit={save}>
+        <label>نام عمده‌فروشی
+          <input type="text" required disabled={!canManage} maxLength={90} value={shopName} onChange={event=>setShopName(event.target.value)} placeholder="نام فروشگاه یا شرکت شما" />
+          <small>این نام در بالای منوی سمت راست و پایین برنامه نمایش داده می‌شود.</small>
+        </label>
+        <label>سال مالی
+          <select disabled={!canManage} value={fiscalYear} onChange={event=>setFiscalYear(Number(event.target.value))}>
+            {years.map(year=><option key={year} value={year}>{number(year)}{year !== preferences.fiscalYear && !financialYearRecordCount(data,year) ? ' — بدون معلومات' : ''}</option>)}
+          </select>
+          <small>این انتخاب در مقایسهٔ خریداری‌ها، فروشات و ارقام سالانهٔ داشبورد استفاده می‌شود.</small>
+        </label>
+        <div className="currency-rates-box">
+          <strong><CircleDollarSign size={18}/> نرخ تبدیل به افغانی</strong>
+          <p>نرخ‌ها را مدیر وارد می‌کند. هر قیمت به دالر یا روپیه هنگام ثبت بل به AFN تبدیل می‌شود؛ نرخ همان معامله محفوظ می‌ماند.</p>
+          <div className="schedule-grid">
+            <label>۱ USD = چند AFN؟<input dir="ltr" type="number" min="0" step="any" disabled={!canManage} value={rates.USD||''} placeholder="مثلاً: نرخ امروز" onChange={e=>setRates({...rates,USD:e.target.value})}/></label>
+            <label>۱ PKR = چند AFN؟<input dir="ltr" type="number" min="0" step="any" disabled={!canManage} value={rates.PKR||''} placeholder="مثلاً: نرخ امروز" onChange={e=>setRates({...rates,PKR:e.target.value})}/></label>
+          </div>
+          <small>نرخ صفر یا خالی: استفاده از آن ارز تا درج نرخ ممکن نیست. برنامه خودش نرخ بازار را دریافت نمی‌کند.</small>
+        </div>
+        {rateError&&<p role="alert" className="form-error">{rateError}</p>}
+        {canManage && <div className="business-settings-actions"><button className="btn primary" type="submit"><Save size={17}/> ذخیره تنظیمات و نرخ‌ها</button></div>}
+      </form>
+    </Panel>
+    <Panel title="زبان و نمایش">
+      <div className="settings-list">
+        <div><strong>زبان برنامه</strong><span>دری افغانستان</span></div>
+        <div><strong>جهت نمایش</strong><span>راست به چپ (RTL)</span></div>
+        <div><strong>تقویم</strong><span>هجری شمسی افغانستان</span></div>
+        <div><strong>واحد پول اصلی</strong><span>افغانی (AFN) — پشتیبانی از USD و PKR با نرخ دستی</span></div>
       </div>
-    </>
-  );
+    </Panel>
+    {canManage && <Panel title="مدیریت معلومات نمایشی">
+      <p className="info-note">برای حذف تمام ریکاردهای موجود در همین مرورگر از گزینهٔ زیر استفاده کنید. این کار قابل برگشت نیست؛ نام فروشگاه و پروفایل حفظ می‌شوند.</p>
+      <button className="btn secondary" type="button" onClick={() => {
+        if (window.confirm("تمام معلومات معاملات و ریکاردهای نمایشی از این مرورگر پاک شوند؟")) {
+          localStorage.removeItem("afghan-wholesale-ui-data");
+          window.location.reload();
+        }
+      }}><RotateCcw size={16}/> پاک‌کردن معلومات نمایشی مرورگر</button>
+    </Panel>}
+    <p className="info-note">این نسخهٔ نمایشی معلومات و تنظیمات را فقط در مرورگر شما ذخیره می‌کند. تغییرات نام فروشگاه در دستگاه‌های دیگر همگام نمی‌شود.</p>
+  </>;
+}
+
+function ProfilePage({preferences,onSave,onNavigate,canEdit=true,roleName=''}) {
+  const [userName,setUserName] = useState(preferences.userName);
+  const [userTitle,setUserTitle] = useState(preferences.userTitle);
+  useEffect(()=>{setUserName(preferences.userName);setUserTitle(preferences.userTitle);},[preferences.userName,preferences.userTitle]);
+  function submit(event){
+    event.preventDefault();
+    if (!userName.trim() || !userTitle.trim()) return;
+    onSave({userName:userName.trim().slice(0,60),userTitle:userTitle.trim().slice(0,60)});
+  }
+  return <>
+    <PageHeading title="پروفایل کاربر" description={`نقش فعلی: ${roleName}`} actions={null} />
+    <Panel title="معلومات کاربر">
+      <div className="profile-preview"><span className="avatar">{preferences.userName.trim().charAt(0) || "ح"}</span><div><strong>{preferences.userName}</strong><span>{preferences.userTitle}</span></div></div>
+      {canEdit && <form className="business-settings-form" onSubmit={submit}>
+        <label>نام نمایشی
+          <input value={userName} onChange={e=>setUserName(e.target.value)} required maxLength={60} placeholder="مثلاً: احمد" />
+        </label>
+        <label>عنوان وظیفوی
+          <input value={userTitle} onChange={e=>setUserTitle(e.target.value)} required maxLength={60} placeholder="مثلاً: حسابدار" />
+        </label>
+        <div className="business-settings-actions"><button className="btn primary" type="submit"><Save size={17}/> ذخیره پروفایل</button></div>
+      </form>}
+    </Panel>
+    <p className="info-note">صلاحیت‌های نقش در صفحه «مدیریت → نقش‌ها و صلاحیت‌ها» تنظیم می‌شوند. این نسخه ورود امن ندارد؛ مدیریت دسترسی فعلاً نمایشی و در همین مرورگر است.</p>
+  </>;
+}
+
+const helpSections = [
+  {title:"ثبت بل فروش و دریافت پول", icon:Receipt, target:"sales", description:"در «بل‌های فروش» بل بسازید؛ برای بل‌های قرضه از گزینهٔ «ثبت دریافت پول» استفاده کنید تا مانده کم شود."},
+  {title:"مشتریان بدهکار", icon:Users, target:"debtors", description:"بل‌های پرداخت‌نشده را ببینید. پس از دریافت تمام مبلغ، بل از فهرست بدهکاران خارج می‌شود."},
+  {title:"ثبت خریداری", icon:ShoppingCart, target:"purchases", description:"بل خرید ثبت کنید؛ تعداد جنس خریداری‌شده به موجودی گدام اضافه می‌شود."},
+  {title:"گدام و موجودی", icon:Warehouse, target:"warehouseDashboard", description:"موجودی، حرکت جنس و انتقال میان گدام‌ها را بررسی کنید. نقطهٔ سفارش هر محصول را در صفحهٔ محصولات تعیین کنید."},
+  {title:"معاشات و دستمزد", icon:Wallet, target:"payroll", description:"برای کارمند معاش ماهانه محاسبه و ثبت کنید؛ سپس پرداخت آن را ثبت کنید."},
+  {title:"گزارش‌ها", icon:FileBarChart, target:"reports", description:"گزارش بل‌ها، مصارف و معاشات را مشاهده، فلتر، چاپ یا به CSV صادر کنید."},
+  {title:"تنظیمات", icon:Settings, target:"settings", description:"نام عمده‌فروشی و سال مالی را تغییر دهید. پروفایل کاربر از بخش پایین منو قابل ویرایش است."},
+];
+function HelpPage({onNavigate,canView=()=>true}) {
+  return <>
+    <PageHeading title="راهنمای سامانه" description="راهنمای بخش‌های برنامه و روش استفاده از آن‌ها" />
+    <div className="help-guide-grid">
+      {helpSections.filter(section=>canView(section.target)).map(section => {
+        const Icon = section.icon;
+        return <section className="help-guide-card" key={section.target}>
+          <div className="help-guide-heading"><Icon size={21}/><h3>{section.title}</h3></div>
+          <p>{section.description}</p>
+          <button type="button" className="btn secondary" onClick={()=>onNavigate(section.target)}>رفتن به این بخش <ArrowUpLeft size={15}/></button>
+        </section>;
+      })}
+    </div>
+    <p className="info-note">این نسخهٔ React برای نمایش به مشتری آماده شده است. معلومات فقط در همین مرورگر ذخیره می‌شوند؛ بخش ورود کاربران و دیتابیس مشترک هنوز موجود نیست.</p>
+  </>;
 }
 
 function StockMovementForm({data, form, setForm, onSubmit, onCancel}) {
@@ -2320,7 +3185,30 @@ function choicesForField(config,key) {
   return AFGHAN_FIELD_CHOICES[key] || null;
 }
 
-function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
+function MoneyEntry({value,onChange,rates,baseLabel}) {
+  const [currency,setCurrency]=useState('AFN');
+  const [draft,setDraft]=useState(value===''?'':String(value));
+  const switchCurrency=next=>{
+    if(next!=='AFN' && !normalizeRates(rates)[next]) return;
+    try {setDraft(value===''?'':String(fromAfn(Number(value),next,rates)));setCurrency(next);}
+    catch { /* rate must be set */ }
+  };
+  return <div className="currency-input-wrap">
+    <div className="currency-entry-line">
+      <input type="number" min="0" step="any" inputMode="decimal" value={draft} onChange={e=>{
+        const typed=e.target.value;
+        setDraft(typed);
+        if(typed===''){onChange('');return;}
+        try {onChange(String(toAfn(Number(typed),currency,rates)));}catch { /* rate must be set first */ }
+      }} placeholder="مبلغ" />
+      <select aria-label="واحد پول" value={currency} onChange={e=>switchCurrency(e.target.value)}>
+        {CURRENCIES.map(code=><option value={code} key={code} disabled={code!=='AFN'&&!normalizeRates(rates)[code]}>{code}</option>)}
+      </select>
+    </div>
+    <small>{baseLabel}: {money(Number(value||0))} {currency!=='AFN'&& !normalizeRates(rates)[currency]?'— ابتدا نرخ ارز را در تنظیمات وارد کنید.':''}</small>
+  </div>;
+}
+function EntityForm({ config, form, setForm, data, rates, onSubmit, onCancel }) {
   return (
     <form onSubmit={onSubmit}>
       <div className="modal-grid">
@@ -2342,6 +3230,8 @@ function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
                 value={form[key] || ""}
                 onChange={(e) => setForm({ ...form, [key]: e.target.value })}
               />
+            ) : config.title === 'محصولات' && ['cost','price'].includes(key) ? (
+              <MoneyEntry value={form[key]??''} onChange={value=>setForm({...form,[key]:value})} rates={rates} baseLabel='ارزش ذخیره‌شده به افغانی'/>
             ) : (
               <input
                 type={
@@ -2380,6 +3270,7 @@ function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
 function InvoiceForm({
   type,
   data,
+  rates,
   form,
   setForm,
   items,
@@ -2394,6 +3285,19 @@ function InvoiceForm({
       Number(x.discount || 0),
     0,
   );
+  const currency=form.currency||'AFN';
+  let currentRate=0;
+  try {currentRate=currencyRate(currency,rates);} catch { currentRate=0; }
+  const switchCurrency = next => {
+    if(next===currency) return;
+    try {
+      const current=currencyRate(currency,rates);
+      const destination=currencyRate(next,rates);
+      const convert=value=>value===''?'':String(roundMoney(Number(value)*current/destination));
+      setItems(items.map(item=>({...item,price:convert(item.price),discount:convert(item.discount||0)})));
+      setForm({...form,currency:next,paid:convert(form.paid||0)});
+    } catch { /* Select is disabled when the admin has not defined a rate. */ }
+  };
   const partyLabel = type === "purchase" ? "عرضه‌کننده" : "مشتری";
   const parties = type === "purchase" ? data.suppliers : data.customers;
   const addRow = () =>
@@ -2405,6 +3309,12 @@ function InvoiceForm({
   return (
     <form onSubmit={onSubmit}>
       <div className="modal-grid">
+        <label>واحد پول بل
+          <select value={currency} onChange={e=>switchCurrency(e.target.value)}>
+            {CURRENCIES.map(code=><option key={code} value={code} disabled={code!=='AFN'&&!normalizeRates(rates)[code]}>{CURRENCY_LABELS[code]}{code!=='AFN'&&!normalizeRates(rates)[code]?' — نرخ تعیین نشده':''}</option>)}
+          </select>
+          <small>{currency==='AFN'?'قیمت‌ها به افغانی ثبت می‌شوند.':currentRate?`نرخ تعیین‌شده: ۱ ${currency} = ${number(currentRate)} افغانی`:'نرخ موجود نیست؛ از تنظیمات اضافه کنید.'}</small>
+        </label>
         <label>
           گدام
           <select value={form.warehouseId || DEFAULT_WAREHOUSE} onChange={e => setForm({ ...form, warehouseId: e.target.value })}>
@@ -2439,7 +3349,7 @@ function InvoiceForm({
           <AfghanDatePicker value={form.date} onChange={date=>setForm({...form,date})} required/>
         </label>
         <label>
-          مبلغ پرداخت‌شده (افغانی)
+          مبلغ پرداخت‌شده ({currency})
           <input
             type="number"
             min="0"
@@ -2459,8 +3369,8 @@ function InvoiceForm({
               <tr>
                 <th>محصول / خدمات</th>
                 <th>تعداد</th>
-                <th>قیمت واحد</th>
-                <th>تخفیف</th>
+                <th>قیمت واحد ({currency})</th>
+                <th>تخفیف ({currency})</th>
                 <th>مجموع</th>
                 <th></th>
               </tr>
@@ -2549,8 +3459,8 @@ function InvoiceForm({
         />
       </label>
       <div className="invoice-total">
-        <span>جمع کل (افغانی)</span>
-        <strong>{money(total)}</strong>
+        <span>جمع کل: {number(roundMoney(total))} {currency} {currency!=='AFN'?'(تبدیل به افغانی)':''}</span>
+        <strong>{currentRate?money(roundMoney(total*currentRate)):'نرخ تبدیل تعیین نشده'}</strong>
       </div>
       <div className="modal-actions">
         <button type="button" className="btn secondary" onClick={onCancel}>

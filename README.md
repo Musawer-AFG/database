@@ -1,3 +1,13 @@
+# آخرین تغییرات: ورود، ارز و شیفت کارمندان
+
+- **صفحه ورود در آغاز:** نخستین بار، ساخت حساب مدیر و کد بازیابی نمایش داده می‌شود؛ پس از آن نام کاربری و رمز برای ورود لازم است.
+- **شیفت:** ساعت پیش‌فرض کارمندان ۰۸:۰۰ تا ۲۰:۰۰ به وقت افغانستان؛ مدیر می‌تواند زمان‌ها را تغییر دهد یا برای یک شب دسترسی اضافی بدهد.
+- **USD و PKR:** نرخ تبدیل را مدیر در تنظیمات وارد می‌کند. محصولات، بل‌ها و دریافت قرضداری به افغانی تبدیل می‌شوند؛ ارزش اصلی و نرخ بل نگه‌داری می‌گردد.
+- **امنیت:** همچنان نسخه نمایشی React با localStorage است و **دیتابیس یا احراز هویت سروری ندارد**. برای کار واقعی/اشتراک معلومات بین کاربران از سرور امن استفاده شود.
+- راهنمای کامل: `LOGIN_CURRENCY_SHIFTS_DARI.md`
+
+---
+
 # عمده‌فروشی افغانستان — React Frontend
 
 An Afghan Dari / RTL wholesale management **frontend demo** built with React and Vite.
@@ -97,3 +107,53 @@ These tests verify the calculation helpers. They do not replace browser-level or
 ## Afghanistan-localized form fields
 
 See `AFGHAN_LOCALIZATION.md` for changes to TIN, Tazkira, provinces, districts, Afghan Solar Hijri date pickers and payroll fields. This is an update to the existing frontend project, not a separate database implementation.
+
+## Dashboard and sidebar update (Dari / Afghanistan)
+
+- `صفحه اصلی → داشبورد` now includes **مقایسه فروشات و خریداری‌ها** (sales vs purchases by Afghan month), **تحلیل قرضداری مشتریان** (unpaid sales invoice balances aged by invoice date), and **اجناس با موجودی کم** (stock at/below its configured reorder point).
+- Click **سال مالی** in the sidebar to pick a year; the yearly summary cards and sales/purchase charts use that year. Debt balances and current inventory are snapshots of all records, *not* restricted to the chosen fiscal year.
+- Click **تنظیمات** and use **نام عمده‌فروشی** to set your company name; it immediately replaces the default sidebar heading. Settings are persisted in browser localStorage using the separate key `afghan-wholesale-ui-preferences`.
+- Click **راهنمای سامانه** for an interactive help page with links to business sections.
+- Click the bottom **user profile** or top-bar user chip to edit the display name and job title. The label is NOT an authentication role; login/permissions are not yet implemented.
+- The top-bar bell displays a low-stock notice when relevant.
+- Existing business records use the original key `afghan-wholesale-ui-data` and are not reset by this update.
+
+**Privacy / limitations:** This is still a React-only prototype without user accounts or a shared database. Browser storage is device- and origin-specific; do not enter real customer financial information into a public demo. This version does not claim production-quality financial-year closing, audit trails, or user permissions.
+
+### Running
+
+```bash
+npm install
+npm run dev
+npm test
+npm run build
+```
+
+If deploying to Vercel, keep `npm run build` as the build command and `dist` as the output directory. Do not push `node_modules` to GitHub.
+
+The three new charts automatically show a **clearly labelled sample preview** on a newly empty installation. Toggle **دیدن نمودارهای واقعی** to see empty-state charts using your own records. This preview never writes invoices/products to storage. When the user starts entering real records, the dashboard automatically switches to real graphs.
+
+### Financial year and roles (demo edition)
+
+- Switching to a fiscal year with no dated business records is blocked with a Dari message; the selected year remains unchanged.
+- Open **مدیریت → نقش‌ها و صلاحیت‌ها** to create/edit/delete roles and assign them to users.
+- Restrict section visibility, mutations, money collection and wage payments using role permissions; preview another user's UI with **آزمایش دسترسی**.
+- The original admin cannot be deleted. A role assigned to users cannot be deleted until reassignment.
+- These are **localStorage-based interface demonstrations only**. No authentication, shared database, or server-enforced role security exists yet. See `ROLES_AND_FINANCIAL_YEAR_DARI.md` and the future schema template under `postgres/`.
+
+
+## ورود کارمندان (نمایشی)
+
+کاربر را اکنون می‌توان از فهرست کارمندان انتخاب کرد و برای او نام کاربری، رمز موقت و نقش تعیین نمود. صفحهٔ ورود نمایشی پس از تنظیم رمز مدیر فعال می‌شود. **این ورود فقط در مرورگر همان دستگاه کار می‌کند و برای استفادهٔ واقعی یا اشتراک بین دستگاه‌ها امن نیست.** راهنما: `EMPLOYEE_LOGIN_DARI.md`.
+
+### Update: working header controls and demo password recovery
+
+The topbar user dropdown now opens profile/settings/roles/log-out actions. The Afghan calendar shows saved records for a selected day. Global search locates products, parties, invoices, employees and warehouses (only in sections the user can view). On phone, use the search input below the topbar.
+
+To test login, open **مدیریت ← نقش‌ها و صلاحیت‌ها**, activate demo login and privately save the one-time-displayed administrator recovery code. Create employees and their users as before. Log out via the top account menu. The login page has a **رمز را فراموش کرده‌ام** flow using codes issued by the admin in Roles. See `HEADER_LOGIN_UPDATE_DARI.md`.
+
+**Not secure for real use:** data, roles, account hashes and recovery-code hashes are saved only in the same browser's local storage. Staff cannot use these accounts on different devices. Do not use real personal/financial records before implementing server-side authentication and authorization.
+
+
+### اصلاح ساعت کار کارمندان
+در نسخهٔ تازه، پیش‌نمایش کارمند در خارج از شیفت قفل می‌شود، ساعت افغانستان و وضعیت ورود در صفحهٔ نقش‌ها دیده می‌شود، با تغییر ساعت شیفت اجازهٔ اضافی قبلی پاک می‌شود و تب‌های همان مرورگر تغییرات را همگام می‌کنند. راهنما: `SHIFT_ACCESS_FIX_DARI.md`. حساب مدیر اصلی مستثنا است. این نسخه همچنان فقط نمایش React است و کنترل امنیتی سرور ندارد.
