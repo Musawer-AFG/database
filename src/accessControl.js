@@ -19,7 +19,7 @@ export const PAGE_PERMISSION = {
   dashboard:'dashboard.view',sales:'sales.view',purchases:'purchases.view',returns:'returns.view',
   warehouseDashboard:'inventory.view',products:'inventory.view',groups:'inventory.view',warehouses:'inventory.view',
   customersDashboard:'customers.view',customers:'customers.view',debtors:'customers.view',suppliers:'customers.view',
-  journal:'accounting.view',accounts:'accounting.view',expenses:'accounting.view',
+  journal:'accounting.view',accounts:'accounting.view',expenses:'accounting.view',cashRegister:'accounting.view',
   employees:'employees.view',attendance:'employees.view',payroll:'payroll.view',
   reports:'reports.view',trialBalance:'reports.view',journalReport:'reports.view',ledgerReport:'reports.view',documentReport:'reports.view',
   settings:'settings.view',roles:'roles.manage',profile:null,help:null,

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation, useNavigate } from "react-router";
+import { PAGE_PATHS, pathForPage, pageForPath } from "./pageRoutes.js";
 import {
   Home,
   Receipt,
@@ -65,10 +67,14 @@ import {
   ChevronLeft,
   ChevronRight,
   CalendarClock,
+  Palette,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { AFGHAN_MONTHS, DEFAULT_WAREHOUSE, afghanCalendarParts, afghanDateOrder, isInAfghanRange, cash, inventoryState, findProduct, saleStockError, payrollAmounts, journalBalances, reportSummary } from "./business.js";
 import "./styles.css";
 import "./responsive.css";
+import "./theme.css";
 import { AFGHAN_PROVINCES, AFGHAN_FIELD_CHOICES, dateChoiceParts, buildAfghanDate } from "./afghanLocale.js";
 import { customerDebtAging, monthlySalesPurchases, lowStockProducts, financialYearOptions, financialYearRecordCount, afghanDateDayNumber } from "./dashboardMetrics.js";
 import { PERMISSION_GROUPS, PAGE_PERMISSION, ENTITY_MANAGE_PERMISSION, INVOICE_PERMISSIONS, initialAccess, normalizeAccess, canDo, canOpenPage, availablePages, saveRoleRecord, removeRoleRecord, saveUserRecord, removeUserRecord, setAccountPassword, setRecoveryRecord } from "./accessControl.js";
@@ -79,7 +85,12 @@ import { employeeAccess, effectiveDemoAccess, kabulLocalDateTime, normalizeSched
 import { CURRENCIES, CURRENCY_LABELS, DEFAULT_RATES, normalizeRates, currencyRate, toAfn, fromAfn, roundMoney, convertInvoiceToAfn } from "./exchange.js";
 import { FRESH_STORAGE_KEYS, validateFirstSetup, clearFreshStorage } from "./freshSetup.js";
 import { readBusinessLogo, safeBusinessLogo } from "./businessLogo.js";
+import { totalExtras, validateExtras, newExtraExpense } from "./invoiceExtras.js";
 import { describeSettingsChanges, DESTRUCTIVE_SETTINGS_ACTIONS } from "./settingsSecurity.js";
+import { cashRegister, canAffordCash, buildManualCashEntry } from "./cashRegister.js";
+import { ATTENDANCE_OPTIONS, attendanceKey, attendanceDays, attendanceTotals, recordAttendance, resolvedAttendance, attendanceOverview } from "./attendanceLogic.js";
+import { THEME_PRESETS, themeColors, normalizeAppearance, addCustomColor, validHex } from "./themePalette.js";
+import { saveIdentityScan, loadIdentityScan, removeIdentityScan, clearIdentityScans } from "./idDocuments.js";
 
 const afghanMonths = [
   "حمل",
@@ -136,6 +147,7 @@ const navGroups = [
       { id: "journal", label: "اسناد حسابداری" },
       { id: "accounts", label: "سرفصل‌های حساب" },
       { id: "expenses", label: "درآمد و مصارف" },
+      { id: "cashRegister", label: "صندوق نقدی" },
     ],
   },
   {
@@ -193,6 +205,7 @@ const navigationIcons = {
   journal: BookOpen,
   accounts: FolderTree,
   expenses: Wallet,
+  cashRegister: CircleDollarSign,
   reports: FileBarChart,
   trialBalance: Scale,
   journalReport: ClipboardList,
@@ -226,8 +239,8 @@ const entityConfigs = {
       ["unit", "واحد"],
       ["quantity", "موجودی آغازین"],
       ["warehouseId", "گدام آغازین"],
-      ["cost", "بهای تمام‌شده"],
-      ["price", "قیمت فروش"],
+      ["cost", "بهای تمام‌شده (AFN)"],
+      ["price", "قیمت فروش (AFN)"],
       ["tax", "مالیات محصول (%)"],
       ["reorder", "نقطه سفارش"],
     ],
@@ -268,6 +281,9 @@ const entityConfigs = {
       ["name", "نام مشتری"],
       ["type", "نوع"],
       ["economicNumber", "نمبر مالیاتی (TIN) — اختیاری"],
+      ["tazkira", "نمبر تذکره / هویت ملی"],
+      ["tazkiraIssuePlace", "محل صدور تذکره (اختیاری)"],
+      ["identityScan", "عکس یا سکن تذکره"],
       ["phone", "نمبر تیلفون"],
       ["mobile", "نمبر موبایل"],
       ["group", "گروه مشتریان"],
@@ -281,6 +297,7 @@ const entityConfigs = {
       ["name", "نام مشتری"],
       ["type", "نوع"],
       ["economicNumber", "نمبر مالیاتی (TIN)"],
+      ["tazkira", "نمبر تذکره"],
       ["phone", "نمبر تیلفون"],
       ["group", "گروه"],
       ["balance", "مانده (افغانی)"],
@@ -343,6 +360,7 @@ const entityConfigs = {
       ["lastName", "تخلص"],
       ["fatherName", "نام پدر"],
       ["tazkira", "نمبر تذکره (کاغذی / الکترونیکی)"],
+      ["identityScan", "سکن تذکره کارمند"],
       ["passport", "نمبر پاسپورت (اختیاری)"],
       ["gender", "جنسیت"],
       ["marital", "حالت مدنی"],
@@ -408,6 +426,7 @@ const initialData = {
   payroll: [],
   attendance: [],
   stockMovements: [],
+  cashEntries: [],
 };
 function loadInitial() {
   try {
@@ -442,6 +461,7 @@ const defaultPreferences = () => ({
   userName: "حسابدار",
   userTitle: "مدیر سیستم",
   rates: {...DEFAULT_RATES},
+  openingCash: 0,
 });
 function loadPreferences() {
   const defaults = defaultPreferences();
@@ -455,11 +475,41 @@ function loadPreferences() {
       userName: String(stored.userName || defaults.userName),
       userTitle: String(stored.userTitle || defaults.userTitle),
       rates: normalizeRates(stored.rates),
+      openingCash: Number.isFinite(Number(stored.openingCash)) && Number(stored.openingCash)>=0 ? Number(stored.openingCash) : 0,
     };
   } catch { return defaults; }
 }
+const UI_THEME_KEY='afghan_wholesale_appearance_v2';
+function loadAppearance(){
+  try {return normalizeAppearance(JSON.parse(localStorage.getItem(UI_THEME_KEY)||localStorage.getItem('afghan_wholesale_appearance_v1')||'{}'));}
+  catch {return normalizeAppearance();}
+}
+function awaitNothingForDocuments(){
+  // Delete sensitive browser files before reloading the business. Keep the reset usable
+  // if IndexedDB was disabled or unavailable in this browser.
+  return clearIdentityScans().catch(()=>{});
+}
 function App() {
-  const [page, setPage] = useState("dashboard");
+  const [appearance,setAppearance]=useState(loadAppearance);
+  useEffect(()=>{
+    const colors=themeColors(appearance.accent,appearance.mode);
+    const root=document.documentElement;
+    root.dataset.theme=appearance.mode;
+    root.dataset.accent='custom';
+    root.style.setProperty('--custom-accent',colors.accent);
+    root.style.setProperty('--custom-accent-text',colors.text);
+    root.style.setProperty('--custom-accent-soft',colors.soft);
+    root.style.setProperty('--accent-button-text','#ffffff');
+    root.style.setProperty('--accent-button-bg',colors.buttonBg);
+    root.style.setProperty('--accent-button-hover',colors.buttonHover);
+    localStorage.setItem(UI_THEME_KEY,JSON.stringify(appearance));
+  },[appearance]);
+  const location = useLocation();
+  const navigate = useNavigate();
+  // The URL is the one source of truth for the selected page, including browser Back/Forward.
+  const page = pageForPath(location.pathname) || 'dashboard';
+  // Keep the old helpers used by dialogs and dashboard shortcuts, but route through React Router.
+  const setPage = (id, options={}) => navigate(pathForPage(id), options);
   const [preferences, setPreferences] = useState(loadPreferences);
   const [sidebarPopup, setSidebarPopup] = useState("");
   const [showNotices, setShowNotices] = useState(false);
@@ -467,9 +517,18 @@ function App() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState("");
-  const [expandedGroups, setExpandedGroups] = useState(
-    () => new Set(["بل‌ها"]),
-  );
+  const [expandedGroups, setExpandedGroups] = useState(() => {
+    const startingPage = pageForPath(window.location.pathname) || 'dashboard';
+    const group = navGroups.find(g => g.items.some(item => item.id === startingPage));
+    return new Set([group?.label || 'صفحه اصلی']);
+  });
+  useEffect(() => {
+    const group = navGroups.find(g => g.items.some(item => item.id === page));
+    if (!group) return;
+    // A newly selected route highlights only its link, and opens its matching group.
+    setExpandedGroups(previous => previous.size === 1 && previous.has(group.label)
+      ? previous : new Set([group.label]));
+  }, [page]);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [data, setData] = useState(loadInitial);
@@ -527,6 +586,8 @@ function App() {
     return false;
   };
   const [modal, setModal] = useState(null);
+  // Keep the unfinished bill when its customer/supplier is registered on the full entity form.
+  const [invoicePartyReturn, setInvoicePartyReturn] = useState(null);
   const [form, setForm] = useState({});
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
@@ -545,6 +606,9 @@ function App() {
     title: "",
     paid: 0,
     notes: "",
+    usdRate: "",
+    pkrRate: "",
+    extraExpenses: [],
   });
   const [paymentForm, setPaymentForm] = useState({ amount: "", date: today, notes: "" });
   const [stockMovementForm, setStockMovementForm] = useState({
@@ -645,6 +709,9 @@ function App() {
       notify(`برای سال مالی ${number(changes.fiscalYear)} معلوماتی موجود نیست. سال قبلی تغییر نکرد.`);
       return false;
     }
+    if(changes.openingCash!==undefined && Number(changes.openingCash)!==Number(preferences.openingCash) && cashRegister(data,changes.openingCash).balance<0){
+      notify('موجودی آغازین انتخاب‌شده باعث موجودی منفی صندوق می‌شود.');return false;
+    }
     const details=describeSettingsChanges(preferences,changes);
     if(!details.length) {notify('هیچ تغییری برای ذخیره وجود ندارد.');return true;}
     return requestSettingsConfirmation({
@@ -660,18 +727,33 @@ function App() {
     ...DESTRUCTIVE_SETTINGS_ACTIONS.clearTransactions,
     destructive:true,
     onConfirmed:()=>{
-      localStorage.removeItem(FRESH_STORAGE_KEYS.data);
-      window.location.reload();
+      awaitNothingForDocuments().finally(()=>{
+        localStorage.removeItem(FRESH_STORAGE_KEYS.data);
+        window.location.reload();
+      });
     },
   });
   const resetBusinessProtected = () => requestSettingsConfirmation({
     ...DESTRUCTIVE_SETTINGS_ACTIONS.resetBusiness,
     destructive:true,
     onConfirmed:()=>{
-      clearFreshStorage(localStorage,sessionStorage);
-      window.location.reload();
+      awaitNothingForDocuments().finally(()=>{
+        clearFreshStorage(localStorage,sessionStorage);
+        localStorage.removeItem(UI_THEME_KEY);
+        window.location.reload();
+      });
     },
   });
+  const saveAppearance = (draft) => {
+    if(!requirePermission('settings.manage')) return false;
+    const updated=normalizeAppearance({...draft,mode:appearance.mode});
+    if(JSON.stringify(updated)===JSON.stringify(appearance)){notify('رنگ یا حالت نمایش تغییر نکرده است.');return true;}
+    return requestSettingsConfirmation({
+      title:'تأیید تغییر رنگ برنامه',
+      details:[`رنگ انتخاب‌شده: ${updated.accent}`],
+      onConfirmed:()=>{setAppearance(prev=>({...updated,mode:prev.mode}));notify('رنگ برنامه ذخیره شد.');}
+    });
+  };
   const saveProfile = (changes) => {
     if(!requirePermission('profile.edit')) return false;
     setAccess(prev=>({...prev, users:prev.users.map(u=>u.id===activeUserId?{...u,name:String(changes.userName||u.name),title:String(changes.userTitle||u.title)}:u)}));
@@ -717,7 +799,10 @@ function App() {
         const shopName=String(initialProfile.shopName||'').trim().slice(0,90);
         if(!adminName || !shopName) throw Error('نام فروشگاه و نام مدیر ضروری است.');
         next={...next,users:next.users.map(u=>u.id==='admin-user'?{...u,name:adminName,title:'مدیر سیستم'}:u)};
-        setPreferences(prev=>({...prev,shopName,shopLogo:safeBusinessLogo(initialProfile.shopLogo),userName:adminName,userTitle:'مدیر سیستم'}));
+        const openingCash=Number(initialProfile.openingCash||0);
+        if(!Number.isFinite(openingCash) || openingCash<0) throw Error('موجودی آغازین صندوق باید صفر یا بیشتر باشد.');
+        setPreferences(prev=>({...prev,shopName,shopLogo:safeBusinessLogo(initialProfile.shopLogo),openingCash,userName:adminName,userTitle:'مدیر سیستم'}));
+        setAppearance(normalizeAppearance(initialProfile.appearance));
       }
       const recoveryCode=createRecoveryCode();
       const record=await createRecoveryRecord(recoveryCode,{days:365});
@@ -811,11 +896,35 @@ function App() {
     setForm(row ? { ...row } : {});
     setModal({ type: "entity", key });
   }
+  function createPartyFromInvoice(key) {
+    if (!['customers','suppliers'].includes(key)) return;
+    if (modal?.type !== 'invoice') return;
+    if (!requirePermission(ENTITY_MANAGE_PERMISSION[key])) return;
+    // Navigate to the actual customer/supplier section and use its complete create form.
+    setInvoicePartyReturn({invoiceType:modal.invoiceType, originPage:page, entityKey:key});
+    setPage(key);
+    setEditId(null);
+    setForm({});
+    setModal({type:'entity',key});
+  }
+  function cancelEntityForm() {
+    if (invoicePartyReturn) {
+      setPage(invoicePartyReturn.originPage);
+      setModal({type:'invoice',invoiceType:invoicePartyReturn.invoiceType});
+      setInvoicePartyReturn(null);
+    } else setModal(null);
+  }
   function saveEntity(e) {
     e.preventDefault();
     const key = modal.key;
     if(!requirePermission(ENTITY_MANAGE_PERMISSION[key])) return;
-    if (key === "products" && !String(form.name || "").trim()) { notify("نام محصول ضروری است."); return; }
+    if(key==='employees'&&!String(form.firstName||'').trim()) {notify('نام کارمند ضروری است.');return;}
+    if (['products','customers','suppliers'].includes(key) && !String(form.name || '').trim()) {
+      notify(key==='customers'?'نام مشتری ضروری است.':key==='suppliers'?'نام عرضه‌کننده ضروری است.':'نام محصول ضروری است.'); return;
+    }
+    if (['customers','suppliers'].includes(key) && !editId && data[key].some(item=>String(item.name||'').trim().toLowerCase()===String(form.name).trim().toLowerCase())) {
+      notify('این نام قبلاً ثبت شده است؛ از فهرست انتخاب کنید.');return;
+    }
     if (key === "products" && ["quantity", "cost", "price"].some(k => Number(form[k] || 0) < 0)) {
       notify("تعداد و قیمت محصول نباید منفی باشد."); return;
     }
@@ -832,16 +941,26 @@ function App() {
         notify("برای حفظ بل‌های قدیمی، نام این محصول را نمی‌توان تغییر داد."); return;
       }
     }
+    const previousDocument=editId && (key==='employees'||key==='customers') ? data[key].find(x=>x.id===editId)?.identityScan : null;
     setData((prev) => ({
       ...prev,
       [key]: editId
         ? prev[key].map((r) => (r.id === editId ? entry : r))
         : [...prev[key], entry],
     }));
-    setModal(null);
+    if(previousDocument?.id && previousDocument.id!==entry.identityScan?.id) removeIdentityScan(previousDocument.id).catch(()=>{});
+    if(invoicePartyReturn && !editId && invoicePartyReturn.entityKey === key) {
+      setInvoiceForm(prev=>({...prev,party:String(entry.name||'').trim()}));
+      setPage(invoicePartyReturn.originPage);
+      setModal({type:'invoice',invoiceType:invoicePartyReturn.invoiceType});
+      setInvoicePartyReturn(null);
+      notify(key==='customers'?'مشتری ثبت شد و بل فروش دوباره باز شد.':'عرضه‌کننده ثبت شد و بل خرید دوباره باز شد.');
+    } else {
+      setModal(null);
+      notify(editId ? "تغییرات ثبت شد." : "معلومات جدید ثبت شد.");
+    }
     setForm({});
     setEditId(null);
-    notify(editId ? "تغییرات ثبت شد." : "معلومات جدید ثبت شد.");
   }
   function deleteEntity(key, id) {
     if(!requirePermission(ENTITY_MANAGE_PERMISSION[key])) return;
@@ -857,15 +976,17 @@ function App() {
       data.invoices.some(i => String(i.warehouseId) === String(id)) ||
       data.stockMovements.some(m => [m.warehouseId,m.fromWarehouseId,m.toWarehouseId].some(x => String(x)===String(id)))
     )) { notify("این گدام مورد استفاده است و حذف نمی‌شود."); return; }
+    const attached=key==='employees'||key==='customers' ? data[key].find(x=>x.id===id)?.identityScan : null;
     setData((prev) => ({
       ...prev,
       [key]: prev[key].filter((r) => r.id !== id),
     }));
+    if(attached?.id) removeIdentityScan(attached.id).catch(()=>{});
     notify("مورد حذف شد.");
   }
   function openInvoice(type) {
     if(!requirePermission(INVOICE_PERMISSIONS[type]?.manage)) return;
-    setInvoiceForm({ date: today, party: "", title: "", paid: 0, notes: "", warehouseId: DEFAULT_WAREHOUSE, currency:"AFN" });
+    setInvoiceForm({ date: today, party: "", title: "", paid: 0, notes: "", warehouseId: DEFAULT_WAREHOUSE, currency:"AFN", usdRate:"", pkrRate:"", extraExpenses:[] });
     setInvoiceItems([{ product: "", quantity: 1, price: "", discount: 0 }]);
     setModal({ type: "invoice", invoiceType: type });
   }
@@ -873,14 +994,20 @@ function App() {
     e.preventDefault();
     if(!requirePermission(INVOICE_PERMISSIONS[modal.invoiceType]?.manage)) return;
     if (!invoiceItems.length) { notify("حداقل یک قلم در بل اضافه کنید."); return; }
-    if (!invoiceItems.every(i => Number(i.quantity) > 0 && Number(i.price) >= 0 && Number(i.discount || 0) >= 0 && Number(i.discount || 0) <= Number(i.quantity) * Number(i.price))) {
-      notify("تعداد، قیمت و تخفیف اقلام را بررسی کنید."); return;
+    if (!invoiceItems.every(i => String(i.product||'').trim() && i.price!=='' && i.price!=null && Number.isFinite(Number(i.price)) && Number.isFinite(Number(i.quantity)) && Number(i.quantity) > 0 && Number(i.price) >= 0 && Number.isFinite(Number(i.discount || 0)) && Number(i.discount || 0) >= 0 && Number(i.discount || 0) <= Number(i.quantity) * Number(i.price))) {
+      notify("نام محصول، تعداد و قیمت هر قلم را کامل و درست وارد کنید."); return;
     }
+    const extraError=validateExtras(invoiceForm.extraExpenses||[]);
+    if(extraError){notify(extraError);return;}
+    const invoiceRates={USD:invoiceForm.usdRate,PKR:invoiceForm.pkrRate};
     let converted;
-    try { converted=convertInvoiceToAfn(invoiceItems,invoiceForm.paid||0,invoiceForm.currency||'AFN',preferences.rates); }
+    try { converted=convertInvoiceToAfn(invoiceItems,invoiceForm.paid||0,invoiceForm.currency||'AFN',invoiceRates,invoiceForm.extraExpenses||[]); }
     catch(error) { notify(error.message); return; }
     const unknown = invoiceItems.find(i => !findProduct(i, data.products));
-    if (unknown) { notify(`محصول «${unknown.product || "نامشخص"}» ثبت نشده است.`); return; }
+    if (unknown) {
+      notify(`محصول «${unknown.product || "نامشخص"}» ثبت نشده است. ${modal.invoiceType==='purchase'?'از «ثبت محصول جدید» در همین فورم استفاده کنید.':'ابتدا آن را ثبت کنید.'}`);
+      return;
+    }
     if (modal.invoiceType === "sale") {
       const error = saleStockError(data, invoiceItems, invoiceForm.warehouseId);
       if (error) { notify(error); return; }
@@ -891,8 +1018,15 @@ function App() {
       notify("مبلغ پرداخت‌شده باید بین صفر و مجموع بل باشد.");
       return;
     }
+    if ((modal.invoiceType === 'purchase' || modal.invoiceType === 'return') && !canAffordCash(data,preferences.openingCash,initialPaid)) {
+      notify('پول صندوق برای پرداخت این بل کافی نیست. نخست پول به صندوق اضافه کنید.'); return;
+    }
     if (modal.invoiceType === "sale" && subtotal > initialPaid && !invoiceForm.party) {
       notify("برای فروش قرضه، مشتری را انتخاب کنید.");
+      return;
+    }
+    if (modal.invoiceType === "purchase" && subtotal > initialPaid && !invoiceForm.party) {
+      notify("برای خرید قرضه، عرضه‌کننده را انتخاب کنید.");
       return;
     }
     const invoice = {
@@ -902,6 +1036,9 @@ function App() {
       type: modal.invoiceType,
       ...invoiceForm,
       currency:invoiceForm.currency||'AFN',exchangeRate:converted.rate,
+      usdRate:Number(invoiceForm.usdRate||0),pkrRate:Number(invoiceForm.pkrRate||0),
+      extraExpenses:converted.extraExpenses,extraExpensesTotal:converted.extraExpensesTotal,
+      lineSubtotal:converted.lineSubtotal,
       foreignTotal:converted.foreignTotal,foreignPaid:converted.foreignPaid,
       items: converted.items.map((x) => ({ ...x, productId: findProduct(x, data.products)?.id })),
       total: subtotal,
@@ -913,6 +1050,20 @@ function App() {
     setData((prev) => ({ ...prev, invoices: [invoice, ...prev.invoices] }));
     setModal(null);
     notify("بل ثبت شد.");
+  }
+  function quickCreatePurchaseProduct(draft) {
+    if(!requirePermission('inventory.manage')) return false;
+    const name=String(draft.name||'').trim();
+    if(!name){notify('نام محصول ضروری است.');return false;}
+    if(data.products.some(p=>String(p.name||'').trim().toLowerCase()===name.toLowerCase())){
+      notify('این محصول از قبل وجود دارد؛ آن را از فهرست انتخاب کنید.');return false;
+    }
+    const product={id:Date.now(),name,code:String(draft.code||'').trim(),unit:draft.unit||'بوری',
+      quantity:0,warehouseId:invoiceForm.warehouseId||DEFAULT_WAREHOUSE,cost:0,price:0,reorder:0};
+    setData(prev=>({...prev,products:[...prev.products,product]}));
+    setInvoiceItems(prev=>prev.map(line=>!String(line.product||'').trim()?{...line,product:name}:line));
+    notify('محصول تازه ثبت شد؛ اکنون تعداد و قیمت خرید را درج کنید.');
+    return true;
   }
   function deleteInvoice(id) {
     const existing = data.invoices.find(x => x.id === id);
@@ -930,18 +1081,19 @@ function App() {
     notify("بل حذف شد و موجودی گدام به‌روز گردید.");
   }
   function openPayment(invoice) {
-    if(!requirePermission("sales.collect")) return;
-    if (invoice.type !== "sale" || Number(invoice.balance || 0) <= 0) return;
-    setPaymentForm({ amount: "", currency:"AFN", date: today, notes: "" });
+    if(!requirePermission(invoice.type==='purchase'?'purchases.manage':'sales.collect')) return;
+    if (!['sale','purchase'].includes(invoice.type) || Number(invoice.balance || 0) <= 0) return;
+    setPaymentForm({ amount: "", currency:"AFN", usdRate:invoice.usdRate||"", pkrRate:invoice.pkrRate||"", date: today, notes: "" });
     setModal({ type: "payment", invoiceId: invoice.id });
   }
   function savePayment(e) {
     e.preventDefault();
-    if(!requirePermission("sales.collect")) return;
+    const invoiceType=data.invoices.find(x=>x.id===modal?.invoiceId)?.type;
+    if(!requirePermission(invoiceType==='purchase'?'purchases.manage':'sales.collect')) return;
     let amount;
-    try {amount=toAfn(paymentForm.amount,paymentForm.currency||'AFN',preferences.rates);}
+    try {amount=toAfn(paymentForm.amount,paymentForm.currency||'AFN',{USD:paymentForm.usdRate,PKR:paymentForm.pkrRate});}
     catch(error) { notify(error.message); return; }
-    const invoice = data.invoices.find((x) => x.id === modal.invoiceId && x.type === "sale");
+    const invoice = data.invoices.find((x) => x.id === modal.invoiceId && ['sale','purchase'].includes(x.type));
     if (!invoice) { notify("بل فروش پیدا نشد."); return; }
     const remaining = Number(invoice.balance || 0);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -952,10 +1104,13 @@ function App() {
       notify("مبلغ دریافت‌شده از مانده بل بیشتر است.");
       return;
     }
+    if(invoice.type==='purchase' && !canAffordCash(data,preferences.openingCash,amount)){
+      notify('پول کافی در صندوق برای پرداخت قرض عرضه‌کننده موجود نیست.');return;
+    }
     const payment = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       amount,
-      sourceAmount:Number(paymentForm.amount),currency:paymentForm.currency||'AFN',exchangeRate:currencyRate(paymentForm.currency||'AFN',preferences.rates),
+      sourceAmount:Number(paymentForm.amount),currency:paymentForm.currency||'AFN',exchangeRate:currencyRate(paymentForm.currency||'AFN',{USD:paymentForm.usdRate,PKR:paymentForm.pkrRate}),
       date: paymentForm.date || today,
       notes: paymentForm.notes.trim(),
     };
@@ -974,7 +1129,7 @@ function App() {
       }),
     }));
     setModal(null);
-    notify("دریافت پول ثبت شد و مانده مشتری به‌روز گردید.");
+    notify(invoice.type==='purchase'?'پرداخت عرضه‌کننده ثبت شد و پول صندوق کم گردید.':'دریافت پول ثبت شد و پول صندوق زیاد گردید.');
   }
   function openStockMovement() {
     if(!requirePermission("inventory.manage")) return;
@@ -1027,6 +1182,11 @@ function App() {
   }
   function markPayrollPaid(id) {
     if(!requirePermission("payroll.pay")) return;
+    const slip=data.payroll.find(x=>x.id===id);
+    if(!slip || slip.status==='paid') {notify('این برگه قبلاً پرداخت شده است.');return;}
+    if(!canAffordCash(data,preferences.openingCash,payrollAmounts(slip).net)) {
+      notify('موجودی صندوق برای پرداخت معاش کافی نیست.');return;
+    }
     setData(prev => ({ ...prev, payroll: prev.payroll.map(x => x.id === id ? { ...x, status: "paid", paidDate: today } : x) }));
     notify("پرداخت معاش ثبت شد.");
   }
@@ -1064,6 +1224,34 @@ function App() {
     notify("سند حسابداری ثبت شد.");
   }
 
+  const cashState = useMemo(()=>cashRegister(data,preferences.openingCash),[data,preferences.openingCash]);
+  function saveCashEntry(draft){
+    if(!requirePermission('accounting.manage')) return;
+    try {
+      const entry=buildManualCashEntry(draft);
+      if(entry.kind==='out' && !canAffordCash(data,preferences.openingCash,entry.amount)){
+        notify('پول کافی در صندوق موجود نیست.'); return false;
+      }
+      setData(prev=>({...prev,cashEntries:[entry,...(prev.cashEntries||[])]}));
+      notify('حرکت صندوق ثبت شد.');return true;
+    } catch(error){notify(error.message);return false;}
+  }
+  function deleteCashEntry(id){
+    if(!requirePermission('accounting.manage')) return;
+    const entry=(data.cashEntries||[]).find(x=>String(x.id)===String(id));
+    if(!entry)return;
+    const proposed={...data,cashEntries:data.cashEntries.filter(x=>String(x.id)!==String(id))};
+    if(cashRegister(proposed,preferences.openingCash).balance<0){notify('حذف این حرکت موجودی صندوق را منفی می‌کند.');return;}
+    setData(proposed);
+    notify('حرکت دستی صندوق حذف شد.');
+  }
+  function saveAttendanceRecord(employeeId,date,status,notes=''){
+    if(!requirePermission('employees.manage')) return;
+    try {
+      if(!data.employees.some(e=>String(e.id)===String(employeeId))) throw Error('کارمند موجود نیست.');
+      setData(prev=>({...prev,attendance:recordAttendance(prev.attendance,employeeId,date,status,notes)}));
+    } catch(error){notify(error.message);}
+  }
   const totals = useMemo(
     () => ({
       products: data.products.length,
@@ -1098,6 +1286,7 @@ function App() {
         <Dashboard
           data={data}
           totals={dashboardTotals}
+          cashBalance={cashState.balance}
           fiscalYear={preferences.fiscalYear}
           userName={activeUser.name}
           onNavigate={setCurrentPage}
@@ -1161,7 +1350,8 @@ function App() {
             ) : null
           }
           onDelete={can(INVOICE_PERMISSIONS[page === 'sales' ? 'sale' : page === 'purchases' ? 'purchase' : 'return'].manage) ? deleteInvoice : null}
-          onPayment={can('sales.collect') ? openPayment : null}
+          onPayment={(can('sales.collect')||can('purchases.manage')) ? openPayment : null}
+          canCollectSale={can('sales.collect')} canCollectPurchase={can('purchases.manage')}
         />
       );
     if (page === "journal")
@@ -1179,13 +1369,14 @@ function App() {
         />
       );
     if (page === "expenses")
-      return <ExpensesPage data={data} setData={setData} notify={notify} canManage={can('accounting.manage')} />;
+      return <ExpensesPage data={data} setData={setData} notify={notify} canManage={can('accounting.manage')} cashAvailable={cashState.balance} />;
+    if (page === "cashRegister") return <CashRegisterPage state={cashState} onSave={can('accounting.manage')?saveCashEntry:null} onDelete={can('accounting.manage')?deleteCashEntry:null} />;
     if (page === "payroll")
       return <PayrollPage data={data} onNavigate={setCurrentPage} onAdd={can('payroll.manage') ? openPayroll : null} onPaid={can('payroll.pay') ? markPayrollPaid : null} onDelete={can('payroll.manage') ? deletePayroll : null} />;
-    if (page === "attendance") return <AttendancePage data={data} />;
+    if (page === "attendance") return <AttendancePage data={data} onMark={can('employees.manage')?saveAttendanceRecord:null} />;
     if (["reports", "trialBalance", "journalReport", "ledgerReport", "documentReport"].includes(page))
       return <ReportsPage page={page} data={data} />;
-    if (page === "settings") return <SettingsPage preferences={preferences} years={years} data={data} onSave={savePreferences} onClearTransactions={clearTransactionsProtected} onResetBusiness={resetBusinessProtected} canManage={can('settings.manage')} />;
+    if (page === "settings") return <SettingsPage preferences={preferences} years={years} data={data} appearance={appearance} onSaveAppearance={saveAppearance} onSave={savePreferences} onClearTransactions={clearTransactionsProtected} onResetBusiness={resetBusinessProtected} canManage={can('settings.manage')} />;
     if (page === "roles") return <RolesPage access={access} employees={data.employees} demoLoginEnabled={demoLoginEnabled} onActivateDemoLogin={activateDemoLogin} onIssueRecovery={issueRecovery} onSaveRole={saveRole} onDeleteRole={deleteRole} onSaveUser={saveUser} onDeleteUser={deleteUser} onPreviewUser={previewAs} />;
     if (page === "profile") return <ProfilePage preferences={{...preferences,userName:activeUser.name,userTitle:activeUser.title}} onSave={saveProfile} onNavigate={setCurrentPage} canEdit={can('profile.edit')} roleName={activeRole?.name||''} />;
     if (page === "help") return <HelpPage onNavigate={setCurrentPage} canView={canView} />;
@@ -1193,6 +1384,7 @@ function App() {
       <Dashboard
         data={data}
         totals={dashboardTotals}
+        cashBalance={cashState.balance}
         fiscalYear={preferences.fiscalYear}
         userName={activeUser.name}
         onNavigate={setCurrentPage}
@@ -1209,6 +1401,7 @@ function App() {
   if(previewShiftRestricted) return <DemoShiftClosed shopName={preferences.shopName} user={previewEmployee} status={checkedAccess.preview} onLogout={leavePreview} preview now={new Date(kabulTick)}/>;
   if(demoLoginEnabled && signedInUser?.mustChangePassword && !previewUserId)
     return <DemoChangePasswordScreen shopName={preferences.shopName} user={signedInUser} onChangePassword={changeOwnDemoPassword}/>;
+  const visiblePage = renderPage();
   return (
     <div
       className={`app-shell ${mobileMenu ? "sidebar-open" : ""} ${sidebarVisible ? "" : "sidebar-collapsed"}`}
@@ -1267,9 +1460,6 @@ function App() {
             if(!items.length) return null;
             const Icon = group.icon;
             const expanded = expandedGroups.has(group.label);
-            const groupHasActivePage = items.some(
-              (item) => item.id === page,
-            );
             return (
               <section
                 className={`side-nav-group ${expanded ? "expanded" : ""}`}
@@ -1277,16 +1467,11 @@ function App() {
               >
                 <button
                   type="button"
-                  className={`side-nav-heading ${groupHasActivePage ? "contains-active" : ""}`}
+                  className="side-nav-heading"
                   aria-expanded={expanded}
-                  onClick={() =>
-                    setExpandedGroups((previous) => {
-                      const next = new Set(previous);
-                      if (next.has(group.label)) next.delete(group.label);
-                      else next.add(group.label);
-                      return next;
-                    })
-                  }
+                  onClick={() => setExpandedGroups(previous =>
+                    previous.has(group.label) ? new Set() : new Set([group.label])
+                  )}
                 >
                   <Icon size={16} />
                   <span>{group.label}</span>
@@ -1295,24 +1480,28 @@ function App() {
                 {expanded && (
                   <div className="side-nav-items">
                     {items.map((item) => {
-                      const active = page === item.id;
                       const ItemIcon = navigationIcons[item.id] || FileText;
+                      // NavLink computes its active state from React Router, never from stale button focus.
                       return (
-                        <button
+                        <NavLink
                           key={item.id}
-                          className={`side-nav-link ${active ? "active" : ""}`}
-                          onClick={() => setCurrentPage(item.id)}
-                          aria-current={active ? "page" : undefined}
+                          to={pathForPage(item.id)}
+                          end
+                          className={({isActive}) => `side-nav-link ${isActive ? 'active' : ''}`}
+                          onClick={event => {
+                            if (!canView(item.id)) {event.preventDefault();notify('شما به این بخش دسترسی ندارید.');return;}
+                            setSearch('');setAccountOpen(false);setCalendarOpen(false);
+                            setSearchOpen(false);setOpenMenu('');setSidebarPopup('');
+                            setShowNotices(false);setMobileMenu(false);
+                          }}
                         >
-                          <ItemIcon
-                            className="side-nav-item-icon"
-                            size={17}
-                            strokeWidth={active ? 2.2 : 1.75}
-                            aria-hidden="true"
-                          />
-                          <span>{item.label}</span>
-                          {active && <span className="side-nav-active-dot" />}
-                        </button>
+                          {({isActive}) => <>
+                            <ItemIcon className="side-nav-item-icon" size={17}
+                              strokeWidth={isActive ? 2.2 : 1.75} aria-hidden="true" />
+                            <span>{item.label}</span>
+                            {isActive && <span className="side-nav-active-dot" />}
+                          </>}
+                        </NavLink>
                       );
                     })}
                   </div>
@@ -1378,6 +1567,9 @@ function App() {
             </div>
           </div>
           <div className="top-actions">
+            <button type="button" className="icon-btn display-mode-toggle" aria-label={appearance.mode==='dark'?'فعال‌کردن حالت روشن':'فعال‌کردن حالت تاریک'} title={appearance.mode==='dark'?'حالت روشن':'حالت تاریک'} aria-pressed={appearance.mode==='dark'} onClick={()=>setAppearance(prev=>({...prev,mode:prev.mode==='dark'?'light':'dark'}))}>
+              {appearance.mode==='dark'?<Sun size={19}/>:<Moon size={19}/>}
+            </button>
             <QuickSearchBox search={search} onSearch={setSearch} results={foundItems} onSelect={goToSearchResult} open={searchOpen} setOpen={setSearchOpen} />
             <div className="header-date-wrap" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget)) setCalendarOpen(false)}}>
               <button type="button" className="date-chip date-chip-button" aria-expanded={calendarOpen} aria-label="باز کردن تقویم هجری شمسی" title="تقویم و فعالیت‌های روزانه" onClick={()=>{setCalendarOpen(v=>!v);setAccountOpen(false);setSearchOpen(false)}}><CalendarDays size={17}/><span>{today}</span></button>
@@ -1432,7 +1624,13 @@ function App() {
               <span className="today-label">{today}</span>
             </div>
           </div>
-          {renderPage()}
+          <Routes>
+            <Route path="/" element={<Navigate to={pathForPage('dashboard')} replace />} />
+            {Object.values(PAGE_PATHS).map(routePath =>
+              <Route key={routePath} path={routePath} element={visiblePage} />
+            )}
+            <Route path="*" element={<Navigate to={pathForPage('dashboard')} replace />} />
+          </Routes>
         </main>
         <footer className="app-footer">
           {preferences.shopName} <span>رابط کاربری React</span>
@@ -1459,14 +1657,14 @@ function App() {
               : modal.type === "invoice"
                 ? invoiceTitle(modal.invoiceType)
                 : modal.type === "payment"
-                  ? "ثبت دریافت پول از مشتری"
+                  ? (data.invoices.find(x=>x.id===modal.invoiceId)?.type==='purchase'?'ثبت پرداخت به عرضه‌کننده':'ثبت دریافت پول از مشتری')
                 : modal.type === "journal"
                   ? "ثبت سند حسابداری"
                   : modal.type === "stock" ? "ثبت حرکت گدام"
                   : modal.type === "payroll" ? "محاسبه و ثبت معاش"
                   : "ثبت مصارف"
           }
-          onClose={() => setModal(null)}
+          onClose={modal.type === 'entity' ? cancelEntityForm : () => setModal(null)}
         >
           {modal.type === "entity" && (
             <EntityForm
@@ -1475,8 +1673,7 @@ function App() {
               setForm={setForm}
               data={data}
               onSubmit={saveEntity}
-              rates={preferences.rates}
-              onCancel={() => setModal(null)}
+              onCancel={cancelEntityForm}
             />
           )}
           {modal.type === "invoice" && (
@@ -1488,7 +1685,12 @@ function App() {
               items={invoiceItems}
               setItems={setInvoiceItems}
               onSubmit={saveInvoice}
-              rates={preferences.rates}
+              onCreateCustomer={()=>createPartyFromInvoice('customers')}
+              onCreateSupplier={()=>createPartyFromInvoice('suppliers')}
+              onQuickProduct={quickCreatePurchaseProduct}
+              canCreateCustomer={can('customers.manage')}
+              canCreateSupplier={can('customers.manage')}
+              canCreateProduct={can('inventory.manage')}
               onCancel={() => setModal(null)}
             />
           )}
@@ -1498,7 +1700,6 @@ function App() {
               form={paymentForm}
               setForm={setPaymentForm}
               onSubmit={savePayment}
-              rates={preferences.rates}
               onCancel={() => setModal(null)}
             />
           )}
@@ -1563,7 +1764,7 @@ function Panel({ title, action, children, className = "" }) {
     </section>
   );
 }
-function Dashboard({ data, totals, fiscalYear, userName, onNavigate, onInvoice, onJournal, can=()=>true }) {
+function Dashboard({ data, totals, cashBalance=0, fiscalYear, userName, onNavigate, onInvoice, onJournal, can=()=>true }) {
   // No artificial figures: charts use only transactions entered by the shop.
   const chartData = data;
   const shortcuts = [
@@ -1596,6 +1797,7 @@ function Dashboard({ data, totals, fiscalYear, userName, onNavigate, onInvoice, 
         ))}
       </div>}
       <div className="stats-grid">
+        {can('accounting.view') && <div className="cash-dashboard-shortcut" onClick={()=>onNavigate('cashRegister')} role="button" tabIndex={0} onKeyDown={e=>{if(e.key==='Enter')onNavigate('cashRegister')}}><StatCard label="پول موجود در صندوق" value={money(cashBalance)} icon={CircleDollarSign} tone="green" note="دریافت و پرداخت واقعی" /></div>}
         <StatCard
           label="کل موجودی گدام"
           value={money(totals.stock)}
@@ -1942,6 +2144,7 @@ function EntityPage({
   inventory,
 }) {
   const cfg = entityConfigs[page];
+  const [selectedId,setSelectedId]=useState(null);
   const rows = page === "products" ? inventory.rows : page === "warehouses" ? (data.warehouses || []).map(w => ({
     ...w, quantity: data.products.reduce((sum, product) => sum + inventory.get(product.id, w.id), 0)
   })) : page === "customers"
@@ -1950,6 +2153,8 @@ function EntityPage({
   const filtered = rows.filter((row) =>
     JSON.stringify(row).toLowerCase().includes(search.toLowerCase()),
   );
+  const selectedRecord=rows.find(row=>String(row.id)===String(selectedId));
+  const canInspect=page==='customers'||page==='employees';
   const actions = (
     <>
       <button
@@ -2011,13 +2216,17 @@ function EntityPage({
           rows={filtered}
           onEdit={onEdit}
           onDelete={onDelete}
+          onView={canInspect?row=>setSelectedId(row.id):null}
           empty="معلوماتی پیدا نشد. برای شروع، مورد جدید اضافه کنید."
         />
       </Panel>
+      {canInspect&&selectedRecord&&<Modal title={`${page==='customers'?'معلومات مشتری':'معلومات کارمند'} — ${page==='customers'?selectedRecord.name:[selectedRecord.firstName,selectedRecord.lastName].filter(Boolean).join(' ')}`} onClose={()=>setSelectedId(null)}>
+        <EntityDetails record={selectedRecord} config={cfg} page={page} data={data}/>
+      </Modal>}
     </>
   );
 }
-function DataTable({ columns, rows, onEdit, onDelete, empty }) {
+function DataTable({ columns, rows, onEdit, onDelete, onView, empty }) {
   return (
     <div className="table-wrap mobile-card-table">
       <table>
@@ -2026,18 +2235,26 @@ function DataTable({ columns, rows, onEdit, onDelete, empty }) {
             {columns.map(([key, label]) => (
               <th key={key}>{label}</th>
             ))}
-            {(onEdit || onDelete) && <th>عملیات</th>}
+            {(onEdit || onDelete || onView) && <th>عملیات</th>}
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.id}>
+            <tr key={row.id} className={onView?'inspectable-row':''} tabIndex={onView?0:undefined} role={onView?'button':undefined}
+              aria-label={onView?`دیدن معلومات کامل ${row.name||[row.firstName,row.lastName].filter(Boolean).join(' ')}`:undefined}
+              onClick={onView?event=>{if(event.target.closest('button,a,input,select'))return;onView(row)}:undefined}
+              onKeyDown={onView?event=>{if(event.target!==event.currentTarget)return;if(event.key==='Enter'||event.key===' '){event.preventDefault();onView(row)}}:undefined}>
               {columns.map(([key]) => (
-                <td key={key} data-label={columns.find(([columnKey]) => columnKey === key)?.[1]}>{formatCell(row[key], key)}</td>
+                <td key={key} data-label={columns.find(([columnKey]) => columnKey === key)?.[1]}>
+                  {onView && (key==='name'||key==='firstName')
+                    ? <button type="button" className="table-detail-link" onClick={()=>onView(row)} title="دیدن معلومات کامل">{formatCell(row[key],key)}</button>
+                    : formatCell(row[key], key)}
+                </td>
               ))}
-              {(onEdit || onDelete) && (
+              {(onEdit || onDelete || onView) && (
                 <td data-label="عملیات" className="table-action-cell">
                   <div className="row-actions">
+                    {onView&&<button type="button" className="icon-btn small" title="دیدن معلومات کامل" aria-label="دیدن معلومات کامل" onClick={()=>onView(row)}><Eye size={15}/></button>}
                     {onEdit && (
                       <button
                         className="icon-btn small"
@@ -2073,6 +2290,52 @@ function DataTable({ columns, rows, onEdit, onDelete, empty }) {
     </div>
   );
 }
+function IdentityScanReadOnly({attachment}) {
+  const [url,setUrl]=useState('');
+  const [error,setError]=useState('');
+  useEffect(()=>{
+    let active=true;
+    let created='';
+    setUrl('');setError('');
+    if(!attachment?.id)return;
+    loadIdentityScan(attachment.id).then(file=>{
+      if(!active)return;
+      if(!file?.blob){setError('سکن تذکره در حافظه این مرورگر پیدا نشد.');return;}
+      created=URL.createObjectURL(file.blob);
+      setUrl(created);
+    }).catch(()=>{if(active)setError('بازکردن سند امکان‌پذیر نیست.');});
+    return ()=>{active=false;if(created)URL.revokeObjectURL(created);};
+  },[attachment?.id]);
+  if(!attachment?.id)return <span>ثبت نشده</span>;
+  return <div className="detail-identity">
+    <strong>{attachment.name||'سکن تذکره'}</strong>
+    {url&&attachment.mime?.startsWith('image/')&&<img src={url} alt="پیش‌نمایش سند هویت"/>}
+    {url&&<a className="btn secondary" href={url} download={attachment.name||'tazkira'} target="_blank" rel="noopener noreferrer"><Download size={15}/> دیدن / ذخیره سند</a>}
+    {error&&<small className="form-error">{error}</small>}
+  </div>;
+}
+function EntityDetails({record,config,page,data}) {
+  const fields=config.fields.filter(([key],index,all)=>key!=='identityScan'&&all.findIndex(([other])=>other===key)===index);
+  const customerBills=page==='customers'?(data.invoices||[]).filter(x=>x.type==='sale'&&x.party===record.name):[];
+  const employeePayroll=page==='employees'?(data.payroll||[]).filter(x=>String(x.employeeId)===String(record.id)):[];
+  const employeeAttendance=page==='employees'?(data.attendance||[]).filter(x=>String(x.employeeId)===String(record.id)):[];
+  return <div className="entity-details" dir="rtl">
+    <div className="entity-details-heading"><UserRound size={20}/><div><strong>{page==='customers'?record.name:[record.firstName,record.lastName].filter(Boolean).join(' ')}</strong><small>{page==='customers'?'مشخصات مشتری و معاملات':'مشخصات کارمند و سوابق'}</small></div></div>
+    <div className="entity-details-grid">
+      {fields.map(([key,label])=><div key={key} className="entity-details-field"><small>{label}</small><strong>{record[key]!==undefined && record[key]!==null&&String(record[key]).trim()!==''?formatCell(record[key],key):'ثبت نشده'}</strong></div>)}
+      {page==='customers'&&<div className="entity-details-field"><small>مانده قرضداری</small><strong>{money(record.balance||0)}</strong></div>}
+    </div>
+    <div className="entity-details-section"><h3>سکن تذکره</h3><IdentityScanReadOnly attachment={record.identityScan}/></div>
+    {page==='customers'&&<div className="entity-details-section"><h3>بل‌های فروش مشتری ({number(customerBills.length)})</h3>
+      {customerBills.length?<div className="table-wrap"><table><thead><tr><th>شماره بل</th><th>تاریخ</th><th>مجموع (AFN)</th><th>مانده</th></tr></thead><tbody>{customerBills.map(b=><tr key={b.id}><td>{b.number}</td><td>{b.date}</td><td>{money(b.total)}</td><td>{money(b.balance)}</td></tr>)}</tbody></table></div>:<p className="settings-muted-info">بلی ثبت نشده است.</p>}
+    </div>}
+    {page==='employees'&&<div className="entity-details-section"><h3>سوابق معاش ({number(employeePayroll.length)})</h3>
+      {employeePayroll.length?<div className="table-wrap"><table><thead><tr><th>ماه</th><th>سال</th><th>خالص معاش</th><th>وضعیت</th></tr></thead><tbody>{employeePayroll.map(p=><tr key={p.id}><td>{afghanMonths[Number(p.month)-1]||p.month}</td><td>{number(p.year)}</td><td>{money(payrollAmounts(p).net)}</td><td>{p.status==='paid'?'پرداخت‌شده':'پرداخت‌نشده'}</td></tr>)}</tbody></table></div>:<p className="settings-muted-info">معاشی ثبت نشده است.</p>}
+      <small>حاضری‌های اصلاح‌شده توسط مسئول: {number(employeeAttendance.length)} ریکارد</small>
+    </div>}
+  </div>;
+}
+
 function formatCell(value, key) {
   if (value === undefined || value === null || value === "") return "—";
   if (key === "tax") return `${number(value)}٪`;
@@ -2152,7 +2415,8 @@ function DebtorsPage({ data, onPayment, onNavigate }) {
     </Panel>
   </>;
 }
-function PaymentForm({ invoice, form, setForm, rates, onSubmit, onCancel }) {
+function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
+  const rates={USD:form.usdRate,PKR:form.pkrRate};
   if (!invoice) return <p>بل مورد نظر پیدا نشد.</p>;
   let amount=0;let rate=0;
   try {rate=currencyRate(form.currency||'AFN',rates);amount=toAfn(form.amount||0,form.currency||'AFN',rates);} catch {rate=0;}
@@ -2160,31 +2424,38 @@ function PaymentForm({ invoice, form, setForm, rates, onSubmit, onCancel }) {
   const previous = Array.isArray(invoice.payments) ? invoice.payments : [];
   return <form onSubmit={onSubmit} className="payment-form">
     <div className="payment-summary-grid">
-      <div className="payment-summary-item"><span>مشتری</span><strong>{invoice.party || "مشتری نامشخص"}</strong></div>
+      <div className="payment-summary-item"><span>{invoice.type==='purchase'?'عرضه‌کننده':'مشتری'}</span><strong>{invoice.party || 'طرف حساب نامشخص'}</strong></div>
       <div className="payment-summary-item"><span>شماره بل</span><strong>#{number(invoice.number)}</strong></div>
       <div className="payment-summary-item"><span>مجموع بل</span><strong>{money(invoice.total)}</strong></div>
       <div className="payment-summary-item"><span>مانده فعلی</span><strong>{money(remaining)}</strong></div>
     </div>
     <div className="modal-grid">
-      <label>واحد پول دریافت
+      <label>واحد پول {invoice.type==='purchase'?'پرداخت':'دریافت'}
         <select value={form.currency||'AFN'} onChange={e=>{
           const next=e.target.value;
-          try {const afn=toAfn(Number(form.amount||0),form.currency||'AFN',rates);setForm({...form,currency:next,amount:form.amount===''?'':String(fromAfn(afn,next,rates))});} catch { /* requires rate */ }
+          try {const afn=toAfn(Number(form.amount||0),form.currency||'AFN',rates);setForm({...form,currency:next,amount:form.amount===''?'':String(fromAfn(afn,next,rates))});} catch {if(!Number(form.amount))setForm({...form,currency:next}); else alert('نرخ این ارز را پیش از تبدیل مبلغ درج کنید.'); }
         }}>
-          {CURRENCIES.map(code=><option key={code} value={code} disabled={code!=='AFN'&&!normalizeRates(rates)[code]}>{CURRENCY_LABELS[code]}{code!=='AFN'&&!normalizeRates(rates)[code]?' — نرخ تعیین نشده':''}</option>)}
+          {CURRENCIES.map(code=><option key={code} value={code} >{CURRENCY_LABELS[code]}</option>)}
         </select>
       </label>
-      <label>مبلغ دریافت‌شده ({form.currency||'AFN'})
+      {form.currency!=='AFN' && <div className="invoice-fx-box">
+        <strong>نرخ تبدیل هنگام {invoice.type==='purchase'?'پرداخت':'دریافت'}</strong>
+        <div className="invoice-fx-fields">
+          {form.currency==='USD'?<label>۱ USD = چند AFN؟<input type="number" dir="ltr" min="0" step="any" value={form.usdRate??''} onChange={e=>setForm({...form,usdRate:e.target.value})}/></label>:
+          <label>۱ PKR = چند AFN؟<input type="number" dir="ltr" min="0" step="any" value={form.pkrRate??''} onChange={e=>setForm({...form,pkrRate:e.target.value})}/></label>}
+        </div>
+      </div>}
+      <label>مبلغ {invoice.type==='purchase'?'پرداخت‌شده':'دریافت‌شده'} ({form.currency||'AFN'})
         <input type="number" min="0.01" step="any" inputMode="decimal" autoFocus required value={form.amount} onChange={(e)=>setForm({...form,amount:e.target.value})} placeholder="مبلغ دریافتی" />
       </label>
-      <label>تاریخ دریافت (هجری شمسی)
+      <label>تاریخ {invoice.type==='purchase'?'پرداخت':'دریافت'} (هجری شمسی)
         <AfghanDatePicker required value={form.date} onChange={date=>setForm({...form,date})}/>
       </label>
     </div>
     <label className="full-label">توضیحات (اختیاری)
       <textarea rows="2" value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="مثلاً دریافت نقدی از مشتری"/>
     </label>
-    <p className="info-note">{rate?`معادل افغانی: ${money(amount)} — نرخ ۱ ${form.currency||'AFN'} = ${number(rate)} AFN`:'این ارز نرخ ثبت‌شده ندارد؛ به تنظیمات بروید.'}</p>
+    <p className="info-note">{rate?`معادل افغانی: ${money(amount)} — نرخ ۱ ${form.currency||'AFN'} = ${number(rate)} AFN`:'نرخ این ارز را در همین فورم وارد کنید.'}</p>
     <div className="payment-result"><span>مانده بعد از دریافت</span><strong>{money(Math.max(0,remaining-(Number.isFinite(amount)?amount:0)))}</strong></div>
     {previous.length > 0 && <div className="payment-history">
       <strong>سوابق دریافت پول</strong>
@@ -2192,11 +2463,11 @@ function PaymentForm({ invoice, form, setForm, rates, onSubmit, onCancel }) {
     </div>}
     <div className="modal-actions">
       <button type="button" className="btn secondary" onClick={onCancel}>لغو</button>
-      <button className="btn primary" type="submit"><Wallet size={16}/> ثبت دریافت پول</button>
+      <button className="btn primary" type="submit"><Wallet size={16}/> {invoice.type==='purchase'?'ثبت پرداخت عرضه‌کننده':'ثبت دریافت پول'}</button>
     </div>
   </form>;
 }
-function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPayment }) {
+function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPayment, canCollectSale=false, canCollectPurchase=false }) {
   const type =
     page === "sales" ? "sale" : page === "purchases" ? "purchase" : "return";
   const title =
@@ -2289,7 +2560,7 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
                   <td data-label="تاریخ">{row.date}</td>
                   <td data-label={type === "purchase" ? "عرضه‌کننده" : "مشتری"}>{row.party || "—"}</td>
                   <td data-label="تعداد اقلام">{number(row.items?.length || 0)}</td>
-                  <td data-label="مبلغ (افغانی)">{number(row.total)}</td>
+                  <td data-label="مبلغ (افغانی)">{number(row.total)}{Number(row.extraExpensesTotal||0)>0&&<small className="invoice-expense-tag">شامل مصارف: {number(row.extraExpensesTotal)} افغانی</small>}</td>
                   <td data-label="مانده">{number(row.balance)}</td>
                   <td data-label="وضعیت">
                     <span className="status success">
@@ -2298,9 +2569,9 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
                   </td>
                   <td data-label="عملیات" className="table-action-cell">
                     <div className="row-actions">
-                      {onPayment && type === "sale" && Number(row.balance || 0) > 0 && (
+                      {onPayment && ((type==='sale' && canCollectSale) || (type==='purchase' && canCollectPurchase)) && Number(row.balance || 0) > 0 && (
                         <button className="btn primary pay-action" onClick={() => onPayment(row)}>
-                          <Wallet size={15} /> ثبت دریافت پول
+                          <Wallet size={15} /> {type==='purchase'?'ثبت پرداخت عرضه‌کننده':'ثبت دریافت پول'}
                         </button>
                       )}
                       <button
@@ -2387,7 +2658,42 @@ function JournalPage({ data, onAdd, onDelete }) {
     </>
   );
 }
-function ExpensesPage({ data, setData, notify, canManage=true }) {
+function CashRegisterPage({state,onSave,onDelete}){
+  const [draft,setDraft]=useState({kind:'in',amount:'',date:today,description:''});
+  const [from,setFrom]=useState('');
+  const [to,setTo]=useState('');
+  const [search,setSearch]=useState('');
+  const rows=state.entries.filter(r=>(!from||afghanDateOrder(r.date)>=afghanDateOrder(from))&&(!to||afghanDateOrder(r.date)<=afghanDateOrder(to))&&`${r.label} ${r.category} ${r.date}`.includes(search.trim()));
+  const submit=e=>{e.preventDefault();if(!onSave)return;if(onSave(draft))setDraft(prev=>({...prev,amount:'',description:''}));};
+  return <>
+    <PageHeading title="صندوق نقدی" description="موجودی صندوق بر اساس پول واقعی دریافت‌شده و پرداخت‌شده؛ معاملات قرضه تا زمان پرداخت حساب نمی‌شوند." actions={<button type="button" className="btn secondary" onClick={()=>downloadCsv('صندوق نقدی',[['date','تاریخ'],['label','توضیحات'],['amount','دریافت/پرداخت (AFN)'],['balance','مانده (AFN)']],rows)}><Download size={16}/> CSV</button>}/>
+    <div className="stats-grid four">
+      <StatCard label="پول آغازین صندوق" value={money(state.opening)} icon={Wallet} tone="blue"/>
+      <StatCard label="پول دریافتی" value={money(state.incoming)} icon={TrendingUp} tone="green"/>
+      <StatCard label="پول پرداختی" value={money(state.outgoing)} icon={TrendingDown} tone="rose"/>
+      <StatCard label="موجودی فعلی صندوق" value={money(state.balance)} icon={CircleDollarSign} tone="violet"/>
+    </div>
+    {onSave && <Panel title="افزودن پول مالک / برداشت از صندوق">
+      <p className="settings-muted-info">فروش، دریافت قرض، خرید، معاش و مصارف ثبت‌شده خودکار محاسبه می‌شوند. برای تکراری نشدن، آن‌ها را دوباره این‌جا ثبت نکنید.</p>
+      <form className="form-grid" onSubmit={submit}>
+        <label>نوع حرکت<select value={draft.kind} onChange={e=>setDraft({...draft,kind:e.target.value})}><option value="in">پول گذاشتن مالک در صندوق (+)</option><option value="out">برداشت پول توسط مالک (−)</option></select></label>
+        <label>مبلغ (AFN)<input type="number" min="0.01" step="0.01" inputMode="decimal" required value={draft.amount} onChange={e=>setDraft({...draft,amount:e.target.value})}/></label>
+        <label>تاریخ<AfghanDatePicker required value={draft.date} onChange={date=>setDraft({...draft,date})}/></label>
+        <label className="wide">توضیح / دلیل<input required maxLength={220} placeholder="مثلاً پول شخصی مالک برای خریداری" value={draft.description} onChange={e=>setDraft({...draft,description:e.target.value})}/></label>
+        <div><button type="submit" className="btn primary"><Save size={16}/> ثبت حرکت صندوق</button></div>
+      </form>
+    </Panel>}
+    <Panel title="سوابق دریافت و پرداخت صندوق">
+      <div className="filter-row"><label>از تاریخ<AfghanDatePicker value={from} onChange={setFrom}/></label><label>تا تاریخ<AfghanDatePicker value={to} onChange={setTo}/></label><label>جستجو<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="نام / بل / مصرف"/></label><button className="btn secondary" onClick={()=>{setFrom('');setTo('');setSearch('')}} type="button">پاک‌کردن فلتر</button></div>
+      <div className="table-wrap mobile-card-table"><table><thead><tr><th>تاریخ</th><th>توضیحات</th><th>دریافت (+)</th><th>پرداخت (−)</th><th>مانده پس از حرکت</th>{onDelete&&<th>عملیات</th>}</tr></thead><tbody>
+        {rows.map(item=><tr key={item.id}><td data-label="تاریخ">{item.date||'—'}</td><td data-label="توضیحات">{item.label}</td><td data-label="دریافت">{item.amount>0?money(item.amount):'—'}</td><td data-label="پرداخت">{item.amount<0?money(-item.amount):'—'}</td><td data-label="مانده">{money(item.balance)}</td>{onDelete&&<td data-label="عملیات">{item.id.startsWith('manual-')&&<button className="icon-btn small danger" type="button" title="حذف حرکت دستی" onClick={()=>{if(window.confirm('این حرکت دستی صندوق حذف شود؟'))onDelete(item.ref)}}><Trash2 size={15}/></button>}</td>}</tr>)}
+        {!rows.length&&<tr><td colSpan={onDelete?6:5}><EmptyState text="حرکت نقدی برای این فلتر ثبت نشده است."/></td></tr>}
+      </tbody></table></div>
+    </Panel>
+  </>;
+}
+
+function ExpensesPage({ data, setData, notify, canManage=true, cashAvailable=0 }) {
   const [form, setForm] = useState({
     name: "",
     amount: "",
@@ -2397,6 +2703,9 @@ function ExpensesPage({ data, setData, notify, canManage=true }) {
   const save = (e) => {
     e.preventDefault();
     if(!canManage){notify('صلاحیت ثبت مصارف را ندارید.');return;}
+    const amount=Number(form.amount);
+    if(!Number.isFinite(amount)||amount<=0){notify('مبلغ مصرف باید بیشتر از صفر باشد.');return;}
+    if(amount>cashAvailable+0.001){notify('پول کافی در صندوق موجود نیست.');return;}
     setData((p) => ({
       ...p,
       expenses: [{ ...form, id: Date.now() }, ...p.expenses],
@@ -2538,76 +2847,63 @@ function PayrollPage({ data, onNavigate, onAdd, onPaid, onDelete }) {
     <p className="info-note">این نسخه صرف برای نمایش معاشات است. محاسبه کسورات مطابق قوانین افغانستان به‌صورت خودکار فعال نیست.</p>
   </>;
 }
-function AttendancePage({ data }) {
-  return (
-    <>
-      <PageHeading
-        title="حاضری کارمندان"
-        description="نمایش حاضری روزانه کارمندان"
-      />
-      <div className="filter-row">
-        <label>
-          ماه
-          <select defaultValue="عقرب">
-            {afghanMonths.map((m) => (
-              <option key={m}>{m}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          واحد سازمانی
-          <select>
-            <option>همه واحدها</option>
-          </select>
-        </label>
-        <button className="btn secondary">
-          <Filter size={15} /> فلتر
-        </button>
-      </div>
-      <Panel title="الگوی حاضری روزانه">
-        <div className="attendance-legend">
-          <span className="present">حاضر</span>
-          <span className="late">تأخیر</span>
-          <span className="absent">غایب</span>
-          <span className="off">رخصتی</span>
-        </div>
-        {data.employees.length ? (
-          <>
-          <div className="table-scroll-hint" aria-hidden="true">برای دیدن روزهای دیگر، جدول را به چپ یا راست بکشید.</div>
-          <div className="table-wrap wide-data-table" role="region" aria-label="جدول حاضری قابل حرکت افقی" tabIndex="0">
-            <table>
-              <thead>
-                <tr>
-                  <th>کارمند</th>
-                  {Array.from({ length: 30 }, (_, i) => (
-                    <th key={i}>{number(i + 1)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.employees.map((e) => (
-                  <tr>
-                    <td>
-                      {e.firstName} {e.lastName}
-                    </td>
-                    {Array.from({ length: 30 }, (_, i) => (
-                      <td key={i}>
-                        <span className="attendance-dot present-dot" />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          </>
-        ) : (
-          <EmptyState text="برای نمایش حاضری، ابتدا کارمندان را ثبت کنید." />
-        )}
-      </Panel>
-    </>
-  );
+function AttendancePage({data,onMark}) {
+  const current=afghanCalendarParts();
+  const [year,setYear]=useState(current.year);
+  const [month,setMonth]=useState(current.month);
+  const [day,setDay]=useState(current.day);
+  const [unit,setUnit]=useState('all');
+  const [notes,setNotes]=useState({});
+  const days=attendanceDays(year,month);
+  const selectedDay=Math.max(1,Math.min(day,days));
+  const date=attendanceKey(year,month,selectedDay);
+  const units=[...new Set(data.employees.map(e=>e.unit).filter(Boolean))];
+  const employees=data.employees.filter(e=>unit==='all'||e.unit===unit);
+  const attendanceByKey=new Map((data.attendance||[]).map(x=>[`${x.employeeId}|${x.date}`,x]));
+  const mark=(employee,status)=>onMark?.(employee.id,date,status,notes[String(employee.id)]??attendanceByKey.get(`${employee.id}|${date}`)?.notes??'');
+  const overview=attendanceOverview(data.attendance,employees,year,month);
+  const totals=overview.totals;
+  const options=[...ATTENDANCE_OPTIONS];
+  return <>
+    <PageHeading title="حاضری کارمندان" description="روزهای کاری به‌صورت پیش‌فرض حاضر و روز جمعه رخصتی عمومی نشان داده می‌شوند. مسئول حاضری باید غیابت و تأخیر را بررسی و اصلاح کند." actions={<>
+      <button className="btn secondary" type="button" onClick={()=>downloadCsv('حاضری', [['date','تاریخ'],['employeeName','کارمند'],['statusLabel','وضعیت'],['sourceLabel','منبع ثبت'],['notes','توضیحات']], overview.rows.map(x=>({...x,statusLabel:ATTENDANCE_OPTIONS.find(v=>v.value===x.status)?.label||'',sourceLabel:x.automatic?'پیش‌فرض خودکار':'ثبت مسئول'})))}><Download size={16}/> CSV حاضری ماهانه</button>
+      {onMark&&employees.length>0&&<button className="btn secondary" type="button" onClick={()=>{if(window.confirm(`حاضری روز ${date} برای همه کارمندان حاضر ثبت شود؟`))employees.forEach(e=>mark(e,'present'))}}><ClipboardCheck size={16}/> تأیید حاضری همه — روز انتخاب‌شده</button>}
+    </>}/>
+    <div className="filter-row attendance-controls"><label>سال هجری شمسی<select value={year} onChange={e=>setYear(Number(e.target.value))}>{[current.year-2,current.year-1,current.year,current.year+1].map(y=><option key={y} value={y}>{number(y)}</option>)}</select></label><label>ماه<select value={month} onChange={e=>{setMonth(Number(e.target.value));setDay(1)}}>{afghanMonths.map((m,i)=><option key={m} value={i+1}>{m}</option>)}</select></label><label>روز<select value={selectedDay} onChange={e=>setDay(Number(e.target.value))}>{Array.from({length:days},(_,i)=><option key={i} value={i+1}>{number(i+1)}</option>)}</select></label><label>واحد<select value={unit} onChange={e=>setUnit(e.target.value)}><option value="all">همه واحدها</option>{units.map(u=><option key={u} value={u}>{u}</option>)}</select></label></div>
+    <div className="stats-grid four"><StatCard label="حاضر (شامل پیش‌فرض)" value={number(totals.present)} icon={BadgeCheck} tone="green"/><StatCard label="تأخیر" value={number(totals.late)} icon={Clock3} tone="amber"/><StatCard label="غایب" value={number(totals.absent)} icon={Users} tone="rose"/><StatCard label="رخصتی / جمعه" value={number(totals.off)} icon={CalendarDays} tone="blue"/></div>
+    <Panel title={`ثبت حاضری — ${number(selectedDay)} ${afghanMonths[month-1]} ${number(year)}`}>
+      {employees.length?<div className="attendance-entry-list">
+        {employees.map(e=>{
+          const recorded=attendanceByKey.get(`${e.id}|${date}`);
+          const result=resolvedAttendance(recorded,date,undefined,e);
+          const isFriday=!recorded&&result.status==='off';
+          return <div key={e.id} className="attendance-entry-row">
+            <div className="attendance-employee"><strong>{e.firstName} {e.lastName}</strong><small>{e.position||'کارمند'} {e.unit?`— ${e.unit}`:''}</small><small className="attendance-assumption">{result.automatic?(isFriday?'جمعه — رخصتی عمومی':'پیش‌فرض خودکار؛ غیابت را مسئول اصلاح کند'):(recorded?'ثبت شده توسط مسئول':'هنوز روز کاری فرا نرسیده است')}</small></div>
+            <select aria-label={`حاضری ${e.firstName}`} disabled={!onMark} value={recorded?.status||result.status||''} onChange={event=>mark(e,event.target.value)}>
+              <option value="">ثبت نشده</option>{options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {onMark&&<input className="attendance-note" type="text" aria-label={`یادداشت حاضری ${e.firstName}`} placeholder="توضیح (اختیاری)" value={notes[String(e.id)]??recorded?.notes??''} onChange={event=>setNotes(p=>({...p,[String(e.id)]:event.target.value}))} onBlur={()=>{if(recorded?.status&&notes[String(e.id)]!==undefined)onMark(e.id,date,recorded.status,notes[String(e.id)]);}}/>}
+          </div>;
+        })}
+      </div>:<EmptyState text="ابتدا کارمند ثبت کنید یا فلتر واحد را تغییر دهید."/>}
+      {!onMark&&<p className="settings-muted-info">فقط مسئول مجاز می‌تواند وضعیت حاضری کارمندان را تغییر دهد.</p>}
+    </Panel>
+    <Panel title="نمای ماهانه حاضری">
+      <div className="attendance-legend"><span className="present">حاضر</span><span className="late">تأخیر</span><span className="absent">غایب</span><span className="off">رخصتی / جمعه</span></div>
+      <div className="table-scroll-hint" aria-hidden="true">برای دیدن روزهای دیگر، جدول را به چپ یا راست بکشید. علامت‌های کم‌رنگ به معنی پیش‌فرض اند.</div>
+      <div className="table-wrap wide-data-table attendance-grid" tabIndex="0"><table><thead><tr><th>کارمند</th>{Array.from({length:days},(_,i)=><th key={i}>{number(i+1)}</th>)}</tr></thead><tbody>
+        {employees.map(e=><tr key={e.id}><td>{e.firstName} {e.lastName}</td>{Array.from({length:days},(_,i)=>{
+          const dateAtDay=attendanceKey(year,month,i+1);
+          const explicit=attendanceByKey.get(`${e.id}|${dateAtDay}`);
+          const result=resolvedAttendance(explicit,dateAtDay,undefined,e);
+          return <td key={i}><button type="button" className={`attendance-cell ${result.status||'unmarked'} ${result.automatic?'attendance-auto':''}`} title={`${e.firstName} — روز ${i+1}: ${ATTENDANCE_OPTIONS.find(x=>x.value===result.status)?.label||'ثبت نشده'}${result.automatic?' (خودکار)':''}`} onClick={()=>setDay(i+1)}>{result.status==='present'?'✓':result.status==='late'?'◷':result.status==='absent'?'×':result.status==='off'?'–':'·'}</button></td>;
+        })}</tr>)}
+        {!employees.length&&<tr><td colSpan={days+1}>کارمندی پیدا نشد.</td></tr>}
+      </tbody></table></div>
+    </Panel>
+  </>;
 }
+
 function ReportsPage({ page, data }) {
   const titles = {trialBalance:'تراز آزمایشی',journalReport:'گزارش روزنامه',ledgerReport:'گزارش کل',documentReport:'گزارش اسناد',reports:'گزارش عمومی'};
   const title = titles[page] || 'گزارش عمومی';
@@ -2931,6 +3227,8 @@ function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
   const [businessName,setBusinessName]=useState('');
   const [shopLogo,setShopLogo]=useState('');
   const [logoBusy,setLogoBusy]=useState(false);
+  const [openingCash,setOpeningCash]=useState('0');
+  const [setupAppearance,setSetupAppearance]=useState(normalizeAppearance());
   const [adminName,setAdminName]=useState('');
   const [username,setUsername]=useState('admin');
   const [password,setPassword]=useState('');
@@ -2945,7 +3243,8 @@ function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
     if(!first.ok){setMessage(first.message);return;}
     setBusy(true);
     try {
-      const result=await onSetup(first.username,password,{...first.profile,shopLogo});
+      if(!Number.isFinite(Number(openingCash))||Number(openingCash)<0){setMessage('موجودی آغازین صندوق معتبر نیست.');setBusy(false);return;}
+      const result=await onSetup(first.username,password,{...first.profile,shopLogo,openingCash:Number(openingCash),appearance:setupAppearance});
       if(!result?.ok)setMessage(result?.message||'ساخت حساب مدیر انجام نشد.');
     } catch {setMessage('ساخت حساب مدیر انجام نشد.');}
     finally {setBusy(false);}
@@ -2966,6 +3265,8 @@ function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
       <form className="demo-login-form" onSubmit={submit}>
         <label>نام عمده‌فروشی<input autoFocus required maxLength={90} value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="مثلاً: عمده‌فروشی کابل"/></label>
         <BusinessLogoPicker inputId="new-business-logo" logo={shopLogo} shopName={businessName} onChange={setShopLogo} onBusyChange={setLogoBusy}/>
+        <label>پول آغازین صندوق نقدی (افغانی)<input type="number" min="0" step="0.01" inputMode="decimal" value={openingCash} onChange={e=>setOpeningCash(e.target.value)} required/><small>پول نقدی که در آغاز فعالیت داخل صندوق دارید؛ برای شروع از صفر، ۰ وارد کنید.</small></label>
+        <ThemeSettingsControls value={setupAppearance} onChange={setSetupAppearance} compact/>
         <label>نام و تخلص مدیر<input required maxLength={80} value={adminName} onChange={e=>setAdminName(e.target.value)} placeholder="نام مدیر سیستم"/></label>
         <label>نام کاربری مدیر<input dir="ltr" required value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} autoComplete="username"/></label>
         <label>رمز مدیر<div className="login-password-control"><input dir="ltr" required type={showPassword?'text':'password'} minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="حداقل ۸ حرف یا عدد"/><button className="password-eye" type="button" onClick={()=>setShowPassword(x=>!x)} aria-label={showPassword?'پنهان کردن رمز':'نمایش رمز'}>{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></label>
@@ -3113,23 +3414,73 @@ function SettingsPasswordDialog({challenge,onCancel,onApprove}) {
   </div>;
 }
 
-function SettingsPage({ preferences, years, data, onSave, onClearTransactions, onResetBusiness, canManage=true }) {
+function ThemeSettingsControls({value,onChange,disabled=false,compact=false,showMode=true}) {
+  const appearance=normalizeAppearance(value);
+  const [newColor,setNewColor]=useState('#dc6b31');
+  const [error,setError]=useState('');
+  const colors=[...THEME_PRESETS,...appearance.customColors.filter(hex=>!THEME_PRESETS.some(p=>p.hex.toLowerCase()===hex.toLowerCase())).map((hex,i)=>({name:`رنگ شخصی ${i+1}`,hex}))];
+  return <div className={`theme-settings ${compact?'theme-setup-compact':''}`}>
+    {showMode && <div className="theme-mode-options" role="group" aria-label="حالت نمایش">
+      <button type="button" disabled={disabled} className={`theme-option ${appearance.mode==='light'?'selected':''}`} onClick={()=>onChange({...appearance,mode:'light'})}><Sun size={17}/> روشن</button>
+      <button type="button" disabled={disabled} className={`theme-option ${appearance.mode==='dark'?'selected':''}`} onClick={()=>onChange({...appearance,mode:'dark'})}><Moon size={17}/> تاریک</button>
+    </div>}
+    <div className="theme-colors" role="group" aria-label="رنگ برنامه">
+      {colors.map(item=><button type="button" key={item.hex} disabled={disabled} aria-pressed={appearance.accent.toLowerCase()===item.hex.toLowerCase()} onClick={()=>onChange({...appearance,accent:item.hex})} className={`theme-color-choice ${appearance.accent.toLowerCase()===item.hex.toLowerCase()?'selected':''}`}><span className="theme-color-circle" style={{background:item.hex}}/>{item.name}</button>)}
+    </div>
+    {!disabled && <div className="theme-custom-add"><label>رنگ دلخواه <input type="color" value={newColor} onChange={e=>setNewColor(e.target.value)} aria-label="رنگ جدید"/></label><button type="button" className="btn secondary" onClick={()=>{try{onChange(addCustomColor(appearance,newColor));setError('');}catch(e){setError(e.message);}}}><Plus size={15}/> افزودن رنگ</button></div>}
+    {error&&<p className="form-error" role="alert">{error}</p>}
+    {compact&&<small>رنگ دلخواه و روشن/تاریک را همین‌جا انتخاب کنید؛ بعد از ساخت حساب ذخیره می‌شود.</small>}
+  </div>;
+}
+function IdentityScanField({value,onChange}) {
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [viewUrl,setViewUrl]=useState('');
+  useEffect(()=>{
+    let active=true,url='';
+    if(value?.id) loadIdentityScan(value.id).then(result=>{
+      if(!active||!result?.blob)return;
+      url=URL.createObjectURL(result.blob);
+      setViewUrl(url);
+    }).catch(()=>{if(active)setError('فایل قبلی در حافظه همین مرورگر پیدا نشد.');});
+    else setViewUrl('');
+    return ()=>{active=false;if(url)URL.revokeObjectURL(url);};
+  },[value?.id]);
+  const upload=async event=>{
+    const file=event.target.files?.[0];if(!file)return;
+    setError('');setBusy(true);
+    try {onChange(await saveIdentityScan(file));}
+    catch(e){setError(e.message||'حفظ فایل انجام نشد.');}
+    finally {setBusy(false);event.target.value='';}
+  };
+  return <div className="identity-scan-field">
+    <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={upload} disabled={busy} aria-label="آپلود عکس یا سکن تذکره"/>
+    <small>{busy?'در حال ذخیره فایل...':'JPG / PNG / WebP / PDF، حداکثر ۸ MB؛ در حافظه همین مرورگر حفظ می‌شود.'}</small>
+    {value?.id && <div className="identity-scan-preview">
+      {viewUrl && value.mime!=='application/pdf' ? <img alt="پیش‌نمایش سکن تذکره" src={viewUrl}/> : <FileText size={20}/>}
+      <span>{value.name||'سند هویت'}</span>
+      {viewUrl&&<a className="btn secondary" href={viewUrl} target="_blank" rel="noopener noreferrer" download={value.name||'identity-scan'}>دیدن / ذخیره</a>}
+      <button className="btn secondary" type="button" onClick={()=>onChange(null)}>حذف از فورم</button>
+    </div>}
+    {error&&<small className="form-error" role="alert">{error}</small>}
+  </div>;
+}
+
+function SettingsPage({ preferences, years, data, appearance, onSaveAppearance, onSave, onClearTransactions, onResetBusiness, canManage=true }) {
   const [shopName, setShopName] = useState(preferences.shopName);
   const [shopLogo,setShopLogo] = useState(preferences.shopLogo||'');
   const [logoBusy,setLogoBusy]=useState(false);
   const [fiscalYear, setFiscalYear] = useState(preferences.fiscalYear);
-  const [rates,setRates]=useState(()=>({...normalizeRates(preferences.rates)}));
-  const [rateError,setRateError]=useState('');
-  useEffect(() => { setShopName(preferences.shopName); setShopLogo(preferences.shopLogo||''); setFiscalYear(preferences.fiscalYear); setRates({...normalizeRates(preferences.rates)}); }, [preferences.shopName, preferences.shopLogo, preferences.fiscalYear,preferences.rates]);
+  const [openingCash,setOpeningCash]=useState(String(preferences.openingCash??0));
+  const [themeDraft,setThemeDraft]=useState(()=>normalizeAppearance(appearance));
+  useEffect(() => { setShopName(preferences.shopName); setShopLogo(preferences.shopLogo||''); setFiscalYear(preferences.fiscalYear); setOpeningCash(String(preferences.openingCash??0)); }, [preferences.shopName, preferences.shopLogo, preferences.fiscalYear, preferences.openingCash]);
+  useEffect(()=>setThemeDraft(normalizeAppearance(appearance)),[appearance]);
   const save = event => {
     event.preventDefault();
     const name = shopName.trim();
     if (!name || logoBusy) return;
-    setRateError('');
-    if(['USD','PKR'].some(code=>!Number.isFinite(Number(rates[code])) || Number(rates[code])<0 || Number(rates[code])>1000000)){
-      setRateError('نرخ ارز باید عدد معتبر باشد. نرخ صفر یعنی این ارز هنوز فعال نیست.');return;
-    }
-    if(!onSave({shopName:name.slice(0,90), shopLogo:safeBusinessLogo(shopLogo), fiscalYear:Number(fiscalYear),rates:normalizeRates(rates)})) setFiscalYear(preferences.fiscalYear);
+    if(!Number.isFinite(Number(openingCash))||Number(openingCash)<0) return;
+    if(!onSave({shopName:name.slice(0,90), shopLogo:safeBusinessLogo(shopLogo), openingCash:Number(openingCash), fiscalYear:Number(fiscalYear)})) setFiscalYear(preferences.fiscalYear);
   };
   return <>
     <PageHeading title="تنظیمات" description="نام عمده‌فروشی و سال مالی را تنظیم کنید" />
@@ -3146,25 +3497,21 @@ function SettingsPage({ preferences, years, data, onSave, onClearTransactions, o
           </select>
           <small>این انتخاب در مقایسهٔ خریداری‌ها، فروشات و ارقام سالانهٔ داشبورد استفاده می‌شود.</small>
         </label>
-        <div className="currency-rates-box">
-          <strong><CircleDollarSign size={18}/> نرخ تبدیل به افغانی</strong>
-          <p>نرخ‌ها را مدیر وارد می‌کند. هر قیمت به دالر یا روپیه هنگام ثبت بل به AFN تبدیل می‌شود؛ نرخ همان معامله محفوظ می‌ماند.</p>
-          <div className="schedule-grid">
-            <label>۱ USD = چند AFN؟<input dir="ltr" type="number" min="0" step="any" disabled={!canManage} value={rates.USD||''} placeholder="مثلاً: نرخ امروز" onChange={e=>setRates({...rates,USD:e.target.value})}/></label>
-            <label>۱ PKR = چند AFN؟<input dir="ltr" type="number" min="0" step="any" disabled={!canManage} value={rates.PKR||''} placeholder="مثلاً: نرخ امروز" onChange={e=>setRates({...rates,PKR:e.target.value})}/></label>
-          </div>
-          <small>نرخ صفر یا خالی: استفاده از آن ارز تا درج نرخ ممکن نیست. برنامه خودش نرخ بازار را دریافت نمی‌کند.</small>
-        </div>
-        {rateError&&<p role="alert" className="form-error">{rateError}</p>}
-        {canManage && <div className="business-settings-actions"><button className="btn primary" type="submit" disabled={logoBusy}><Save size={17}/> ذخیره تنظیمات و نرخ‌ها</button></div>}
+        <label>پول آغازین صندوق نقدی (افغانی)<input type="number" min="0" step="0.01" value={openingCash} onChange={e=>setOpeningCash(e.target.value)} disabled={!canManage}/><small>موجودی هنگام راه‌اندازی فروشگاه؛ تغییر آن با تأیید رمز مدیر انجام می‌شود.</small></label>
+        {canManage && <div className="business-settings-actions"><button className="btn primary" type="submit" disabled={logoBusy}><Save size={17}/> ذخیره تنظیمات</button></div>}
       </form>
+    </Panel>
+    <Panel title="رنگ برنامه">
+      <p className="settings-muted-info">برای تغییر حالت روشن یا تاریک از دکمهٔ ماه/آفتاب در نوار بالای برنامه استفاده کنید.</p>
+      <ThemeSettingsControls value={themeDraft} onChange={setThemeDraft} disabled={!canManage} showMode={false}/>
+      {canManage && <div className="business-settings-actions"><button type="button" className="btn primary" onClick={()=>onSaveAppearance(themeDraft)}><Save size={17}/> ذخیره رنگ برنامه</button></div>}
     </Panel>
     <Panel title="زبان و نمایش">
       <div className="settings-list">
         <div><strong>زبان برنامه</strong><span>دری افغانستان</span></div>
         <div><strong>جهت نمایش</strong><span>راست به چپ (RTL)</span></div>
         <div><strong>تقویم</strong><span>هجری شمسی افغانستان</span></div>
-        <div><strong>واحد پول اصلی</strong><span>افغانی (AFN) — پشتیبانی از USD و PKR با نرخ دستی</span></div>
+        <div><strong>واحد پول اصلی</strong><span>افغانی (AFN) — نرخ USD و PKR هنگام ثبت هر بل درج می‌شود</span></div>
       </div>
     </Panel>
     {canManage && <Panel title="مدیریت معلومات">
@@ -3314,34 +3661,11 @@ function choicesForField(config,key) {
   return AFGHAN_FIELD_CHOICES[key] || null;
 }
 
-function MoneyEntry({value,onChange,rates,baseLabel}) {
-  const [currency,setCurrency]=useState('AFN');
-  const [draft,setDraft]=useState(value===''?'':String(value));
-  const switchCurrency=next=>{
-    if(next!=='AFN' && !normalizeRates(rates)[next]) return;
-    try {setDraft(value===''?'':String(fromAfn(Number(value),next,rates)));setCurrency(next);}
-    catch { /* rate must be set */ }
-  };
-  return <div className="currency-input-wrap">
-    <div className="currency-entry-line">
-      <input type="number" min="0" step="any" inputMode="decimal" value={draft} onChange={e=>{
-        const typed=e.target.value;
-        setDraft(typed);
-        if(typed===''){onChange('');return;}
-        try {onChange(String(toAfn(Number(typed),currency,rates)));}catch { /* rate must be set first */ }
-      }} placeholder="مبلغ" />
-      <select aria-label="واحد پول" value={currency} onChange={e=>switchCurrency(e.target.value)}>
-        {CURRENCIES.map(code=><option value={code} key={code} disabled={code!=='AFN'&&!normalizeRates(rates)[code]}>{code}</option>)}
-      </select>
-    </div>
-    <small>{baseLabel}: {money(Number(value||0))} {currency!=='AFN'&& !normalizeRates(rates)[currency]?'— ابتدا نرخ ارز را در تنظیمات وارد کنید.':''}</small>
-  </div>;
-}
-function EntityForm({ config, form, setForm, data, rates, onSubmit, onCancel }) {
+function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
   return (
     <form onSubmit={onSubmit}>
       <div className="modal-grid">
-        {config.fields.map(([key, label]) => (
+        {config.fields.map(([key, label]) => key==='identityScan' ? <div className="identity-form-field" key={key}><strong>{label}</strong><IdentityScanField value={form.identityScan} onChange={attachment=>setForm(previous=>({...previous,identityScan:attachment}))}/></div> : (
           <label key={key}>
             {label}
             {key === "warehouseId" ? <select value={form.warehouseId || DEFAULT_WAREHOUSE} onChange={e => setForm({ ...form, warehouseId: e.target.value })}>
@@ -3359,8 +3683,6 @@ function EntityForm({ config, form, setForm, data, rates, onSubmit, onCancel }) 
                 value={form[key] || ""}
                 onChange={(e) => setForm({ ...form, [key]: e.target.value })}
               />
-            ) : config.title === 'محصولات' && ['cost','price'].includes(key) ? (
-              <MoneyEntry value={form[key]??''} onChange={value=>setForm({...form,[key]:value})} rates={rates} baseLabel='ارزش ذخیره‌شده به افغانی'/>
             ) : (
               <input
                 type={
@@ -3399,13 +3721,18 @@ function EntityForm({ config, form, setForm, data, rates, onSubmit, onCancel }) 
 function InvoiceForm({
   type,
   data,
-  rates,
   form,
   setForm,
   items,
   setItems,
   onSubmit,
   onCancel,
+  onCreateCustomer,
+  onCreateSupplier,
+  onQuickProduct,
+  canCreateCustomer=false,
+  canCreateSupplier=false,
+  canCreateProduct=false,
 }) {
   const total = items.reduce(
     (s, x) =>
@@ -3415,17 +3742,59 @@ function InvoiceForm({
     0,
   );
   const currency=form.currency||'AFN';
+  const rates={USD:form.usdRate,PKR:form.pkrRate};
+  const [showExtras,setShowExtras]=useState(false);
+  const [newProduct,setNewProduct]=useState(null);
+  const [pendingFx,setPendingFx]=useState(null);
+  const expensesTotal=totalExtras(form.extraExpenses||[]);
   let currentRate=0;
   try {currentRate=currencyRate(currency,rates);} catch { currentRate=0; }
+  const extraValid=!validateExtras(form.extraExpenses||[]);
+  const updateExtra=(id,key,value)=>setForm(prev=>({...prev,extraExpenses:(prev.extraExpenses||[]).map(e=>e.id===id?{...e,[key]:value}:e)}));
+  const removeExtra=id=>setForm(prev=>({...prev,extraExpenses:(prev.extraExpenses||[]).filter(e=>e.id!==id)}));
+  const addExtra=()=>{setShowExtras(true);setForm(prev=>({...prev,extraExpenses:[...(prev.extraExpenses||[]),newExtraExpense()] }));};
   const switchCurrency = next => {
-    if(next===currency) return;
-    try {
-      const current=currencyRate(currency,rates);
-      const destination=currencyRate(next,rates);
-      const convert=value=>value===''?'':String(roundMoney(Number(value)*current/destination));
+    if (next===currency) return;
+    if (pendingFx) {
+      if(next===pendingFx.sourceCurrency) {
+        setItems(pendingFx.items);
+        setForm(prev=>({...prev,currency:next,paid:pendingFx.paid,extraExpenses:pendingFx.extraExpenses}));
+        setPendingFx(null);
+      } else {
+        setForm(prev=>({...prev,currency:next}));
+        setPendingFx({...pendingFx,targetCurrency:next});
+      }
+      return;
+    }
+    const hasValues = items.some(i=>Number(i.price)||Number(i.discount)) || Number(form.paid) || expensesTotal;
+    let originRate=0, destinationRate=0;
+    try {originRate=currencyRate(currency,rates);} catch {}
+    try {destinationRate=currencyRate(next,rates);} catch {}
+    if(hasValues && (!originRate || !destinationRate)) {
+      if(!originRate) { alert('ابتدا نرخ ارز فعلی بل را درج کنید.'); return; }
+      // Original amounts are kept until the new rate is entered, avoiding silent currency mistakes.
+      setPendingFx({sourceCurrency:currency,targetCurrency:next,sourceRate:originRate,items:items.map(i=>({...i})),paid:form.paid,extraExpenses:(form.extraExpenses||[]).map(e=>({...e}))});
+      setForm(prev=>({...prev,currency:next}));
+      return;
+    }
+    if(hasValues) {
+      const convert=value=>value===''?'':String(roundMoney(Number(value)*originRate/destinationRate));
       setItems(items.map(item=>({...item,price:convert(item.price),discount:convert(item.discount||0)})));
-      setForm({...form,currency:next,paid:convert(form.paid||0)});
-    } catch { /* Select is disabled when the admin has not defined a rate. */ }
+      setForm(prev=>({...prev,currency:next,paid:convert(prev.paid||0),extraExpenses:(prev.extraExpenses||[]).map(e=>({...e,amount:convert(e.amount)}))}));
+    } else setForm(prev=>({...prev,currency:next}));
+  };
+  const changeSelectedRate = value => {
+    const code=currency;
+    const field=code==='USD'?'usdRate':'pkrRate';
+    if(!['USD','PKR'].includes(code)) return;
+    setForm(prev=>({...prev,[field]:value}));
+    const rate=Number(value);
+    if(pendingFx && pendingFx.targetCurrency===code && Number.isFinite(rate) && rate>0) {
+      const convert=value=>value===''?'':String(roundMoney(Number(value)*pendingFx.sourceRate/rate));
+      setItems(pendingFx.items.map(item=>({...item,price:convert(item.price),discount:convert(item.discount||0)})));
+      setForm(prev=>({...prev,[field]:value,paid:convert(pendingFx.paid||0),extraExpenses:pendingFx.extraExpenses.map(e=>({...e,amount:convert(e.amount)}))}));
+      setPendingFx(null);
+    }
   };
   const partyLabel = type === "purchase" ? "عرضه‌کننده" : "مشتری";
   const parties = type === "purchase" ? data.suppliers : data.customers;
@@ -3440,10 +3809,20 @@ function InvoiceForm({
       <div className="modal-grid">
         <label>واحد پول بل
           <select value={currency} onChange={e=>switchCurrency(e.target.value)}>
-            {CURRENCIES.map(code=><option key={code} value={code} disabled={code!=='AFN'&&!normalizeRates(rates)[code]}>{CURRENCY_LABELS[code]}{code!=='AFN'&&!normalizeRates(rates)[code]?' — نرخ تعیین نشده':''}</option>)}
+            {CURRENCIES.map(code=><option key={code} value={code}>{CURRENCY_LABELS[code]}</option>)}
           </select>
-          <small>{currency==='AFN'?'قیمت‌ها به افغانی ثبت می‌شوند.':currentRate?`نرخ تعیین‌شده: ۱ ${currency} = ${number(currentRate)} افغانی`:'نرخ موجود نیست؛ از تنظیمات اضافه کنید.'}</small>
+          <small>{currency==='AFN'?'قیمت‌ها به افغانی ثبت می‌شوند.':currentRate?`نرخ همین بل: ۱ ${currency} = ${number(currentRate)} افغانی`:'نرخ ارز را در همین بل درج کنید.'}</small>
         </label>
+        {currency!=='AFN' && <div className="invoice-fx-box" role="group" aria-label={`نرخ تبدیل ${currency}`}>
+          <strong><CircleDollarSign size={17}/> نرخ تبدیل {currency} به افغانی</strong>
+          <p>نرخ همین بل را وارد کنید. این نرخ فقط برای همین بل است.</p>
+          <div className="invoice-fx-fields">
+            <label>۱ {currency} = چند افغانی؟
+              <input dir="ltr" type="number" min="0" step="any" inputMode="decimal" required placeholder={currency==='USD'?'نرخ دالر به افغانی':'نرخ روپیه به افغانی'} value={currency==='USD'?(form.usdRate??''):(form.pkrRate??'')} onChange={e=>changeSelectedRate(e.target.value)}/>
+            </label>
+          </div>
+          {pendingFx && <small className="invoice-muted-hint" role="status">نرخ را درج کنید تا قیمت‌ها و مصارف قبلی به {currency} تبدیل شوند.</small>}
+        </div>}
         <label>
           گدام
           <select value={form.warehouseId || DEFAULT_WAREHOUSE} onChange={e => setForm({ ...form, warehouseId: e.target.value })}>
@@ -3459,20 +3838,22 @@ function InvoiceForm({
             placeholder="نام بل"
           />
         </label>
-        <label>
-          {partyLabel}
-          <select
-            value={form.party}
-            onChange={(e) => setForm({ ...form, party: e.target.value })}
-          >
-            <option value="">{partyLabel} را انتخاب کنید</option>
-            {parties.map((p) => (
-              <option key={p.id} value={p.name}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="invoice-party-field">
+          <label>
+            {partyLabel}
+            <select
+              value={form.party}
+              onChange={(e) => setForm({ ...form, party: e.target.value })}
+            >
+              <option value="">{partyLabel} را انتخاب کنید</option>
+              {parties.map((p) => (
+                <option key={p.id} value={p.name}>{p.name}</option>
+              ))}
+            </select>
+          </label>
+          {type==='sale' && canCreateCustomer && <button type="button" className="inline-create-link" onClick={onCreateCustomer}><UserPlus size={16}/> مشتری در فهرست نیست؟ ایجاد مشتری جدید</button>}
+          {type==='purchase' && canCreateSupplier && <button type="button" className="inline-create-link" onClick={onCreateSupplier}><UserPlus size={16}/> عرضه‌کننده در فهرست نیست؟ ایجاد عرضه‌کننده جدید</button>}
+        </div>
         <label>
           تاریخ (هجری شمسی افغانستان)
           <AfghanDatePicker value={form.date} onChange={date=>setForm({...form,date})} required/>
@@ -3482,6 +3863,8 @@ function InvoiceForm({
           <input
             type="number"
             min="0"
+            step="any"
+            inputMode="decimal"
             value={form.paid}
             onChange={(e) => setForm({ ...form, paid: e.target.value })}
           />
@@ -3537,6 +3920,8 @@ function InvoiceForm({
                       aria-label={`قیمت واحد، قلم ${index + 1}`}
                       type="number"
                       min="0"
+                      step="any"
+                      inputMode="decimal"
                       value={item.price}
                       onChange={(e) => update(index, "price", e.target.value)}
                     />
@@ -3546,6 +3931,8 @@ function InvoiceForm({
                       aria-label={`تخفیف، قلم ${index + 1}`}
                       type="number"
                       min="0"
+                      step="any"
+                      inputMode="decimal"
                       value={item.discount}
                       onChange={(e) =>
                         update(index, "discount", e.target.value)
@@ -3575,10 +3962,36 @@ function InvoiceForm({
             </tbody>
           </table>
         </div>
-        <button type="button" className="add-line" onClick={addRow}>
-          <Plus size={14} /> افزودن قلم
-        </button>
+        <div className="invoice-line-actions">
+          <button type="button" className="add-line" onClick={addRow}><Plus size={14}/> افزودن قلم</button>
+          {type==='purchase'&&canCreateProduct&&<button type="button" className="add-line" onClick={()=>setNewProduct(v=>v?null:{name:'',code:'',unit:'بوری'})}><Package size={15}/> {newProduct?'بستن ثبت محصول':'ثبت محصول جدید در همین بل'}</button>}
+        </div>
+        {newProduct && <section className="inline-create-panel" aria-label="افزودن محصول تازه">
+          <h4>محصول جدید</h4>
+          <div className="invoice-fx-fields">
+            <label>نام محصول<input placeholder="مثلاً برنج درجه یک" value={newProduct.name} onChange={e=>setNewProduct({...newProduct,name:e.target.value})}/></label>
+            <label>واحد<input placeholder="مثلاً بوری یا کارتن" value={newProduct.unit} onChange={e=>setNewProduct({...newProduct,unit:e.target.value})}/></label>
+            <label>کد محصول (اختیاری)<input value={newProduct.code} onChange={e=>setNewProduct({...newProduct,code:e.target.value})}/></label>
+          </div>
+          <button type="button" className="btn primary" onClick={()=>{if(onQuickProduct(newProduct))setNewProduct(null)}}><Plus size={15}/> ثبت محصول و ادامه خرید</button>
+        </section>}
+        {type==='purchase'&&<small className="invoice-muted-hint">اگر جنس در فهرست نیست، آن را همین‌جا ثبت کنید؛ سپس مقدار و قیمت خرید را درج کنید.</small>}
       </div>
+      <section className="invoice-extras">
+        <button type="button" className="invoice-more-toggle" aria-expanded={showExtras||(form.extraExpenses||[]).length>0} onClick={()=>setShowExtras(v=>!v)}><MoreHorizontal size={17}/> مصارف اضافی بل (کرایه موتر، بارگیری و سایر) <ChevronDown size={16}/></button>
+        {(showExtras||(form.extraExpenses||[]).length>0)&&<div className="invoice-extra-body">
+          <small>مصارف درج‌شده به جمع کل بل اضافه می‌شود. برای خریداری می‌توانید کرایه موتر، محصول گمرکی و سایر مصارف را ثبت کنید.</small>
+          {(form.extraExpenses||[]).map(extra=><div className="invoice-extra-row" key={extra.id}>
+            <label>نام و شرح مصرف
+              <input type="text" maxLength="200" required placeholder="مثلاً کرایه موتر، مالیه، بارگیری..." value={extra.description||''} onChange={e=>updateExtra(extra.id,'description',e.target.value)}/>
+            </label>
+            <label>مبلغ ({currency})<input type="number" min="0" step="any" inputMode="decimal" value={extra.amount??''} onChange={e=>updateExtra(extra.id,'amount',e.target.value)}/></label>
+            <button type="button" className="icon-btn small danger invoice-extra-remove" title="حذف مصرف" aria-label="حذف مصرف" onClick={()=>removeExtra(extra.id)}><Trash2 size={16}/></button>
+          </div>)}
+          <button type="button" className="add-line" onClick={addExtra}><Plus size={15}/> افزودن مصرف دیگر</button>
+          {!extraValid&&<p role="alert" className="form-error">مبلغ مصارف اضافی را بررسی کنید.</p>}
+        </div>}
+      </section>
       <label className="full-label">
         توضیحات
         <textarea
@@ -3588,8 +4001,8 @@ function InvoiceForm({
         />
       </label>
       <div className="invoice-total">
-        <span>جمع کل: {number(roundMoney(total))} {currency} {currency!=='AFN'?'(تبدیل به افغانی)':''}</span>
-        <strong>{currentRate?money(roundMoney(total*currentRate)):'نرخ تبدیل تعیین نشده'}</strong>
+        <span>اجناس: {number(roundMoney(total))} {currency} + مصارف اضافی: {number(roundMoney(expensesTotal))} {currency}</span>
+        <strong>{currentRate?money(roundMoney((total+expensesTotal)*currentRate)):'نرخ تبدیل این بل تعیین نشده'}</strong>
       </div>
       <div className="modal-actions">
         <button type="button" className="btn secondary" onClick={onCancel}>
@@ -3761,6 +4174,9 @@ function downloadInvoiceCsv(rows) {
       ["date", "تاریخ"],
       ["party", "طرف حساب"],
       ["total", "مبلغ"],
+      ["extraExpensesTotal", "مصارف اضافی"],
+      ["currency", "ارز بل"],
+      ["exchangeRate", "نرخ تبدیل"],
       ["balance", "مانده"],
       ["status", "وضعیت"],
     ],
@@ -3790,4 +4206,8 @@ function downloadFile(name, content, type) {
   URL.revokeObjectURL(url);
 }
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <BrowserRouter>
+    <App />
+  </BrowserRouter>
+);

@@ -11,6 +11,9 @@ export function describeSettingsChanges(previous = {}, next = {}) {
   if (next.fiscalYear != null && Number(previous.fiscalYear) !== Number(next.fiscalYear)) {
     updates.push(`تغییر سال مالی از ${previous.fiscalYear} به ${next.fiscalYear}`);
   }
+  if (next.openingCash != null && Number(previous.openingCash || 0) !== Number(next.openingCash)) {
+    updates.push(`تغییر موجودی آغازین صندوق نقدی از ${previous.openingCash || 0} به ${next.openingCash}`);
+  }
   for (const code of ['USD', 'PKR']) {
     if (next.rates && Number(previous.rates?.[code] || 0) !== Number(next.rates[code] || 0)) {
       updates.push(`تغییر نرخ تبدیل ${code} به افغانی`);

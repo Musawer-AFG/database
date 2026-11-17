@@ -1,0 +1,52 @@
+// Cash-register totals are derived from actual recorded payments, not invoice face values.
+// This prevents duplicate deductions and correctly handles credit invoices and partial settlements.
+import { afghanDateOrder, cash } from './business.js';
+
+export function cashRegister(data={}, openingCash=0) {
+  const opening = cash(Math.max(0, Number(openingCash) || 0));
+  const entries=[];
+  const add = (id, date, label, signedAmount, category, ref='') => {
+    const amount = Number(signedAmount);
+    if (!Number.isFinite(amount) || !amount) return;
+    entries.push({id:String(id),date:String(date||''),label:String(label||''),amount:cash(amount),category,ref});
+  };
+  for(const invoice of data.invoices||[]) {
+    const sign=invoice.type==='sale'?1:-1;
+    const kind=invoice.type==='sale'?'فروش نقدی':invoice.type==='purchase'?'پرداخت بل خرید':'بازپرداخت بل برگشتی';
+    add(`bill-${invoice.id}`,invoice.date,`${kind} #${invoice.number||invoice.id}${invoice.party?` — ${invoice.party}`:''}`,sign*Number(invoice.paid||0) - (invoice.payments||[]).reduce((s,p)=>s+sign*Number(p.amount||0),0),kind,invoice.id);
+    for(const payment of invoice.payments||[]) {
+      const isSale=invoice.type==='sale';
+      add(`payment-${invoice.id}-${payment.id}`,payment.date,`${isSale?'دریافت قرض مشتری':'پرداخت قرض عرضه‌کننده'} — بل #${invoice.number||invoice.id}`,sign*Number(payment.amount||0),isSale?'دریافت قرض مشتری':'پرداخت قرض عرضه‌کننده',invoice.id);
+    }
+  }
+  for(const expense of data.expenses||[]) add(`expense-${expense.id}`,expense.date,`مصرف: ${expense.name||'مصرف'}`,-Number(expense.amount||0),'مصارف',expense.id);
+  for(const salary of data.payroll||[]) if(salary.status==='paid') {
+    const net=Math.max(0,Number(salary.net??(Number(salary.base||0)+Number(salary.bonus||0)-Number(salary.deduction||0))));
+    add(`salary-${salary.id}`,salary.paidDate||salary.date,`معاش: ${salary.employeeName||'کارمند'}`,-net,'معاشات',salary.id);
+  }
+  for(const item of data.cashEntries||[]) {
+    add(`manual-${item.id}`,item.date,item.description||'حرکت دستی صندوق',item.kind==='in'?Number(item.amount||0):-Number(item.amount||0),item.kind==='in'?'افزودن پول مالک':'برداشت پول مالک',item.id);
+  }
+  // Process transactions in date order, retaining stable insertion ordering for same-day entries.
+  entries.sort((a,b)=>afghanDateOrder(a.date)-afghanDateOrder(b.date)||a.id.localeCompare(b.id));
+  let balance=opening;
+  const history=entries.map(entry=>{balance=cash(balance+entry.amount);return {...entry,balance};});
+  const incoming=cash(entries.reduce((s,x)=>s+Math.max(0,x.amount),0));
+  const outgoing=cash(entries.reduce((s,x)=>s+Math.max(0,-x.amount),0));
+  return {opening,incoming,outgoing,balance:cash(balance),entries:history.reverse()};
+}
+
+export function canAffordCash(data,openingCash,amount) {
+  const number=Number(amount);
+  return Number.isFinite(number) && number>=0 && cashRegister(data,openingCash).balance + 0.001 >= number;
+}
+
+export function buildManualCashEntry(input) {
+  const amount=Number(input?.amount);
+  if(!Number.isFinite(amount)||amount<=0) throw Error('مبلغ باید بیشتر از صفر باشد.');
+  if(!['in','out'].includes(input?.kind)) throw Error('نوع حرکت صندوق معتبر نیست.');
+  const description=String(input?.description||'').trim();
+  if(!description) throw Error('توضیح منبع پول یا برداشت ضروری است.');
+  if(!afghanDateOrder(input?.date)) throw Error('تاریخ افغانی معتبر انتخاب کنید.');
+  return {id:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,kind:input.kind,amount:cash(amount),date:input.date,description};
+}

@@ -1,0 +1,348 @@
+/* Per-browser appearance preferences. No business records are changed by theme switches. */
+:root[data-accent="blue"]{--custom-accent:#007aff;--custom-accent-soft:#eaf3ff;--custom-accent-text:#0066d6}
+:root[data-accent="violet"]{--custom-accent:#8056d8;--custom-accent-soft:#f3eeff;--custom-accent-text:#6941b2}
+:root[data-accent="green"]{--custom-accent:#15856b;--custom-accent-soft:#e8f7f0;--custom-accent-text:#126a56}
+:root{--brand:var(--custom-accent,#007aff);--brand-hover:var(--custom-accent-text,#0066d6);--brand-soft:var(--custom-accent-soft,#eaf3ff)}
+.appearance-controls{position:relative;display:flex;gap:5px;align-items:center;flex:0 0 auto}
+.appearance-button{min-width:37px;min-height:37px;border-radius:11px}
+.appearance-menu{position:absolute;top:calc(100% + 11px);left:0;z-index:60;min-width:173px;padding:12px;background:var(--surface,#fff);border:1px solid var(--line,#e6e6ec);box-shadow:0 12px 34px #13121f22;border-radius:15px;display:flex;flex-direction:column;gap:5px}
+.appearance-menu>strong{color:var(--ink,#25252c);font-size:13px;padding:4px 8px 8px}
+.appearance-menu button{border:0;background:transparent;color:var(--ink,#25252c);border-radius:9px;min-height:39px;padding:8px;display:flex;align-items:center;gap:10px;text-align:right}
+.appearance-menu button:hover,.appearance-menu button[aria-checked="true"]{background:var(--brand-soft)}
+.appearance-menu button svg{margin-right:auto;color:var(--brand)}
+.theme-swatch{width:17px;height:17px;border-radius:50%;border:2px solid #ffffffaa;box-shadow:0 0 0 1px #5555}
+.theme-swatch.blue{background:#007aff}.theme-swatch.violet{background:#8056d8}.theme-swatch.green{background:#15856b}
+/* Invoice-specific rates, item setup, and optional charges */
+.invoice-fx-box{grid-column:1/-1;min-width:0;border:1px solid var(--line,#e0dbe7);background:var(--surface-secondary,#f8f6fc);padding:14px;border-radius:14px;display:flex;flex-direction:column;gap:9px}
+.invoice-fx-box>strong{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink,#333)}
+.invoice-fx-box p,.invoice-extra-body>small,.invoice-muted-hint{color:var(--muted,#787282);font-size:12px;line-height:1.75;margin:0;display:block}
+.invoice-fx-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;width:100%;min-width:0}
+.invoice-fx-fields label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px}
+.invoice-fx-fields input,.invoice-fx-fields select{width:100%;min-width:0;min-height:45px;font-size:15px}
+.invoice-line-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:8px}
+.inline-create-link{border:0;background:none;color:var(--custom-accent-text,#0066d6);display:inline-flex;align-items:center;gap:7px;padding:8px 0;text-align:right;font-weight:700;font-size:13px;white-space:normal}
+.inline-create-panel{padding:15px;margin:16px 0;border:1px solid var(--line,#e1dfeb);background:var(--surface-secondary,#f8f7fc);border-radius:14px;display:flex;flex-direction:column;gap:13px}
+.inline-create-panel h4{margin:0;font-size:15px;color:var(--ink,#292531)}
+.inline-create-panel>.btn{align-self:flex-start;min-height:43px}
+.invoice-extras{margin:16px 0;border:1px solid var(--line,#e7e3eb);border-radius:14px;overflow:hidden;min-width:0}
+.invoice-more-toggle{display:flex;width:100%;align-items:center;gap:10px;padding:14px;text-align:right;background:var(--surface-secondary,#f7f6fb);color:var(--ink,#342b42);font-size:14px;font-weight:750;border:0;white-space:normal}
+.invoice-more-toggle svg:last-child{margin-right:auto}
+.invoice-more-toggle[aria-expanded="true"] svg:last-child{transform:rotate(180deg)}
+.invoice-extra-body{padding:13px;display:flex;flex-direction:column;gap:13px}
+.invoice-extra-row{display:grid;grid-template-columns:minmax(160px,1.3fr) minmax(140px,1fr) minmax(110px,.8fr) 35px;gap:10px;align-items:end;min-width:0}
+.invoice-extra-row label{min-width:0;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.invoice-extra-row input,.invoice-extra-row select{font-size:15px;min-height:44px;min-width:0}
+.invoice-extra-remove{margin-bottom:7px;align-self:end}
+.invoice-total{gap:12px;flex-wrap:wrap;line-height:1.8}
+/* Use the selected accent for main interactions across light and dark themes. */
+.btn.primary{background:var(--custom-accent,#007aff)!important;border-color:var(--custom-accent,#007aff)!important;color:#fff!important}
+.btn.primary:hover{filter:brightness(.94)}
+.side-nav-link.active,.side-nav-heading.contains-active{color:var(--custom-accent-text,#0066d6)!important}
+.side-nav-link.active{background:var(--custom-accent-soft,#eaf3ff)!important}
+.side-nav-link.active svg,.side-nav-heading.contains-active svg,.text-btn,.login-text-link{color:var(--custom-accent-text,#0066d6)!important}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --app-bg:#11131a;--surface:#1c202b;--surface-secondary:#242937;--surface-tertiary:#2e3444;
+  --ink:#f0f2f7;--ink-secondary:#d6d9e3;--muted:#adb4c2;
+  --line:#383d4c;--line-strong:#454c5d;--brand-soft:#282f42;
+  --shadow-card:0 2px 16px rgba(0,0,0,.19);--shadow-float:0 20px 60px rgba(0,0,0,.45);
+  background:#11131a;color:#f0f2f7;
+}
+:root[data-theme="dark"] body,:root[data-theme="dark"] .app-shell,:root[data-theme="dark"] .workspace,:root[data-theme="dark"] .main-area{background:var(--app-bg)!important;color:var(--ink)}
+:root[data-theme="dark"] .sidebar,:root[data-theme="dark"] .workspace .topbar,:root[data-theme="dark"] .panel,:root[data-theme="dark"] .stat-card,:root[data-theme="dark"] .summary-strip,:root[data-theme="dark"] .filter-row,:root[data-theme="dark"] .shortcut,:root[data-theme="dark"] .modal,:root[data-theme="dark"] .modal-container,:root[data-theme="dark"] .modal-header,:root[data-theme="dark"] .modal-body,:root[data-theme="dark"] .header-account-menu,:root[data-theme="dark"] .header-calendar-popover,:root[data-theme="dark"] .header-search-results,:root[data-theme="dark"] .sidebar-year-menu,:root[data-theme="dark"] .sidebar-help,:root[data-theme="dark"] .sidebar-period,:root[data-theme="dark"] .notices-popover,:root[data-theme="dark"] .demo-login-card,:root[data-theme="dark"] .settings-password-dialog{background:var(--surface)!important;color:var(--ink)!important;border-color:var(--line)!important;box-shadow:var(--shadow-card)}
+:root[data-theme="dark"] .modal-backdrop{background:rgba(0,0,0,.65)}
+:root[data-theme="dark"] input,:root[data-theme="dark"] select,:root[data-theme="dark"] textarea,:root[data-theme="dark"] .icon-btn,:root[data-theme="dark"] .btn.secondary,:root[data-theme="dark"] .date-chip,:root[data-theme="dark"] .user-chip,:root[data-theme="dark"] .top-search,:root[data-theme="dark"] .quick-search-box{background:var(--surface-secondary)!important;color:var(--ink)!important;border-color:var(--line)!important}
+:root[data-theme="dark"] input::placeholder,:root[data-theme="dark"] textarea::placeholder{color:#929bac}
+:root[data-theme="dark"] .page-toolbar h1,:root[data-theme="dark"] .section-heading h2,:root[data-theme="dark"] .welcome-row h2,:root[data-theme="dark"] .panel-heading h3,:root[data-theme="dark"] .stat-copy strong,:root[data-theme="dark"] .stat-copy span,:root[data-theme="dark"] .topbar-context strong,:root[data-theme="dark"] .sidebar-brand .brand-text strong,:root[data-theme="dark"] .modal-header h2,:root[data-theme="dark"] .demo-login-card h1,:root[data-theme="dark"] .demo-login-form label,:root[data-theme="dark"] .sidebar-action strong,:root[data-theme="dark"] .account-menu-heading strong,:root[data-theme="dark"] .settings-list strong,:root[data-theme="dark"] .invoice-total strong,:root[data-theme="dark"] td{color:var(--ink)!important}
+:root[data-theme="dark"] .section-heading p,:root[data-theme="dark"] .settings-list span,:root[data-theme="dark"] .muted-pill,:root[data-theme="dark"] .today-label,:root[data-theme="dark"] .form-grid label,:root[data-theme="dark"] .modal-grid label,:root[data-theme="dark"] .full-label,:root[data-theme="dark"] .invoice-total,:root[data-theme="dark"] .role-item-actions small{color:var(--muted)!important}
+:root[data-theme="dark"] th,:root[data-theme="dark"] .report-summary div,:root[data-theme="dark"] .balance-row,:root[data-theme="dark"] .year-pill,:root[data-theme="dark"] .muted-pill,:root[data-theme="dark"] .invoice-lines,:root[data-theme="dark"] .sidebar-help,:root[data-theme="dark"] .info-note,:root[data-theme="dark"] .payment-summary-item,:root[data-theme="dark"] .recovery-code-panel,:root[data-theme="dark"] .setup-steps span,:root[data-theme="dark"] .status.success{background:var(--surface-secondary)!important;border-color:var(--line)!important;color:var(--ink)!important}
+:root[data-theme="dark"] td,:root[data-theme="dark"] th,:root[data-theme="dark"] .panel,:root[data-theme="dark"] .sidebar-nav,:root[data-theme="dark"] .side-nav-link{border-color:var(--line)!important}
+:root[data-theme="dark"] tbody tr:hover,:root[data-theme="dark"] .side-nav-heading:hover,:root[data-theme="dark"] .side-nav-link:hover,:root[data-theme="dark"] .header-account-menu button:hover,:root[data-theme="dark"] .appearance-menu button:hover{background:#2a3142!important}
+:root[data-theme="dark"] .invoice-fx-box,:root[data-theme="dark"] .inline-create-panel,:root[data-theme="dark"] .invoice-more-toggle,:root[data-theme="dark"] .invoice-extras,:root[data-theme="dark"] .invoice-extra-body{background:var(--surface-secondary)!important;color:var(--ink);border-color:var(--line)}
+:root[data-theme="dark"] .invoice-extra-body input,:root[data-theme="dark"] .invoice-extra-body select{background:var(--surface)!important}
+:root[data-theme="dark"] .demo-login-page{background:radial-gradient(circle at 70% 0%,#2e2748 0%,transparent 48%),#11131a!important}
+:root[data-theme="dark"] .demo-login-card>p,:root[data-theme="dark"] .demo-login-brow,:root[data-theme="dark"] .demo-login-disclaimer{color:var(--muted)!important}
+:root[data-theme="dark"] .theme-swatch{border-color:#171a20}
+@media(max-width:760px){.appearance-controls{gap:3px}.appearance-button{width:34px;min-width:34px;min-height:38px;padding:4px}.appearance-menu{left:-35px}.invoice-fx-fields{grid-template-columns:minmax(0,1fr)}.invoice-extra-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.invoice-extra-row label:nth-child(2){grid-column:span 2;grid-row:2}.invoice-extra-row label:nth-child(3){grid-column:1;grid-row:3}.invoice-extra-remove{grid-column:2;grid-row:3;justify-self:end}.invoice-total{flex-direction:column;align-items:flex-start}.invoice-fx-fields input{font-size:16px;min-height:48px}}
+@media(max-width:430px){.appearance-button{width:31px;min-width:31px}.invoice-extra-row{grid-template-columns:minmax(0,1fr) 40px}.invoice-extra-row label:first-child{grid-column:1/-1}.invoice-extra-row label:nth-child(2){grid-column:1/-1;grid-row:auto}.invoice-extra-row label:nth-child(3){grid-column:1;grid-row:auto}.invoice-extra-remove{grid-column:2;grid-row:auto}}
+.invoice-expense-tag{display:block;color:var(--muted,#7b7683);font-size:11px;line-height:1.6;margin-top:3px}
+.appearance-menu{right:0;left:auto}
+@media (max-width:760px){.appearance-menu{right:0;left:auto}}
+
+/* ================================================================
+   CONSISTENT THEMES / HOVER / FOCUS -- theme.css is imported last.
+   Component-specific hard-coded Apple styles are overridden here.
+   Semantic error/success colors remain intentional and unchanged.
+   ================================================================ */
+:root {
+  --theme-hover:var(--custom-accent-soft,#eaf3ff);
+  --theme-hover-ink:var(--custom-accent-text,#0066d6);
+  --theme-focus:color-mix(in srgb,var(--custom-accent) 24%,transparent);
+  --theme-control-bg:var(--surface);
+}
+:root[data-theme="dark"][data-accent="blue"]{--custom-accent:#5da9ff;--custom-accent-text:#91c7ff;--custom-accent-soft:#233752}
+:root[data-theme="dark"][data-accent="violet"]{--custom-accent:#ae8bff;--custom-accent-text:#d1bbff;--custom-accent-soft:#382b52}
+:root[data-theme="dark"][data-accent="green"]{--custom-accent:#50c7a0;--custom-accent-text:#8fe2c1;--custom-accent-soft:#204536}
+:root[data-theme="dark"]{
+  --brand:var(--custom-accent);--brand-hover:var(--custom-accent-text);--brand-soft:var(--custom-accent-soft);
+  --theme-control-bg:var(--surface-secondary);--theme-hover:var(--custom-accent-soft);
+  --theme-hover-ink:var(--custom-accent-text);
+}
+/* Main accent through button families, navigation, icon buttons and badges */
+:root .btn.primary,:root .demo-login-form button[type="submit"]{
+  background:var(--custom-accent)!important;border-color:var(--custom-accent)!important;
+  color:var(--app-bg,#fff)!important;
+  transition:background-color .18s ease,box-shadow .18s ease,transform .18s ease,filter .18s ease;
+}
+:root[data-theme="light"] .btn.primary,:root[data-theme="light"] .demo-login-form button[type="submit"]{color:#fff!important}
+:root .btn.primary:hover,:root .demo-login-form button[type="submit"]:hover{
+  background:var(--custom-accent-text)!important;border-color:var(--custom-accent-text)!important;
+  box-shadow:0 5px 17px var(--theme-focus)!important;filter:none!important;transform:translateY(-1px)
+}
+:root .btn.secondary:hover,:root .icon-btn:hover,:root .shortcut:hover,
+:root .text-btn:hover,:root .inline-create-link:hover,:root .add-line:hover,
+:root .invoice-more-toggle:hover,:root .appearance-menu button:hover,
+:root .header-account-menu button:hover,:root .header-calendar-popover button:hover,
+:root .sidebar-year-menu button:hover{
+  background:var(--theme-hover)!important;color:var(--theme-hover-ink)!important;
+  border-color:var(--custom-accent)!important;
+}
+:root .side-nav-link:hover,:root .side-nav-heading:hover,
+:root .sidebar-brand-home:hover{
+  background:var(--theme-hover)!important;color:var(--theme-hover-ink)!important;
+}
+:root .side-nav-link.active,:root .side-nav-heading.contains-active,
+:root .side-nav-link[aria-current="page"]{
+  background:var(--theme-hover)!important;color:var(--theme-hover-ink)!important;
+}
+:root .side-nav-link.active .side-nav-indicator,
+:root .period-dot,:root .notification-btn i{background:var(--custom-accent)!important}
+:root .side-nav-link.active svg,:root .side-nav-heading.contains-active svg,
+:root .side-nav-link:hover svg,:root .side-nav-heading:hover svg,
+:root .sidebar-brand-home:hover svg{color:var(--theme-hover-ink)!important}
+:root .sidebar-brand .brand-mark{background:linear-gradient(145deg,var(--custom-accent),var(--custom-accent-text))!important;
+  box-shadow:0 5px 14px var(--theme-focus)!important}
+:root .shortcut>span,:root .help-icon,:root .avatar,
+:root .year-pill,:root .muted-pill{background:var(--theme-hover)!important;color:var(--theme-hover-ink)!important}
+:root .shortcut:hover>span,:root .shortcut:hover .shortcut-plus,
+:root .shortcut:hover svg,:root .icon-btn:hover svg{color:var(--theme-hover-ink)!important}
+:root .summary-strip strong,:root .text-btn,:root .inline-create-link,
+:root .login-text-link,:root .top-search:focus-within svg,
+:root .appearance-menu button[aria-checked="true"]{color:var(--theme-hover-ink)!important}
+:root .appearance-menu button[aria-checked="true"]{background:var(--theme-hover)!important}
+:root :is(button,input,select,textarea,a):focus-visible{outline:2px solid var(--custom-accent)!important;outline-offset:2px}
+:root input:focus,:root textarea:focus,:root select:focus,:root .top-search:focus-within{
+  border-color:var(--custom-accent)!important;box-shadow:0 0 0 3px var(--theme-focus)!important
+}
+:root .top-search input:focus{box-shadow:none!important}
+:root .invoice-more-toggle[aria-expanded="true"]{color:var(--theme-hover-ink)!important}
+/* Dark mode: complete coverage of secondary surfaces and text */
+:root[data-theme="dark"]{--shadow-card:0 3px 14px rgba(0,0,0,.2)}
+:root[data-theme="dark"] .sidebar{background:var(--surface)!important;border-color:var(--line)!important}
+:root[data-theme="dark"] .workspace .topbar{background:var(--surface)!important}
+:root[data-theme="dark"] :is(.panel,.stat-card,.shortcut,.summary-strip,.filter-row,
+  .modal,.modal-body,.modal-header,.invoice-lines,.invoice-extras,.invoice-extra-body,
+  .invoice-fx-box,.header-account-menu,.header-calendar-popover,.header-search-results,
+  .appearance-menu,.sidebar-help,.sidebar-period,.sidebar-year-menu,
+  .inline-create-panel,.report-summary>div,.recovery-code-panel,.role-preview-banner,
+  .setup-steps,.payment-summary-item,.empty-state,.empty-chart){
+  background:var(--surface)!important;border-color:var(--line)!important;color:var(--ink)!important
+}
+:root[data-theme="dark"] :is(.side-nav-link,.side-nav-heading,.shortcut,
+  .user-chip,.sidebar-brand-home,.sidebar-brand .brand-text strong,.sidebar-period strong,
+  .sidebar-help strong,.sidebar-user strong,.sidebar-user small,.account-menu-heading strong,
+  .panel-heading h3,.section-heading h2,.topbar-context strong,.page-toolbar h1,
+  .welcome-row h2,.invoice-lines strong,.lines-title,.invoice-extra-row label,
+  .invoice-fx-box strong,.report-summary strong,.report-summary span,.settings-list strong,
+  .modal-header h2,.modal-body label,.role-item-actions,.form-grid label,.full-label,
+  .modal-grid label,.stat-copy span,.stat-copy strong,.payment-summary-item strong){
+  color:var(--ink)!important
+}
+:root[data-theme="dark"] :is(.section-heading p,.welcome-row p,.eyebrow,
+  .topbar-context span,.sidebar-brand .brand-text small,.sidebar-period small,
+  .invoice-muted-hint,.invoice-extra-body>small,.settings-list span,.stat-copy small,
+  .empty-state,.empty-chart,.report-summary small,.page-toolbar .today-label){color:var(--muted)!important}
+:root[data-theme="dark"] :is(input,select,textarea,.date-chip,.icon-btn,.user-chip,
+  .btn.secondary,.top-search,.quick-search-box,.invoice-more-toggle,
+  .invoice-extra-body,.topbar .avatar,.year-pill,.muted-pill){
+  background:var(--surface-secondary)!important;color:var(--ink)!important;border-color:var(--line)!important
+}
+:root[data-theme="dark"] :is(th,.table-wrap thead,.report-summary>div,
+  .status.success,.balance-row,.notice-row,.sidebar-help .help-icon){
+  background:var(--surface-secondary)!important;color:var(--ink)!important;border-color:var(--line)!important
+}
+:root[data-theme="dark"] :is(td,th,table,.table-wrap,.stat-card,.shortcut,
+  .sidebar-brand,.side-nav-link,.sidebar-period,.modal-actions,.app-footer){border-color:var(--line)!important}
+:root[data-theme="dark"] tbody tr:hover{background:var(--theme-hover)!important}
+:root[data-theme="dark"] :is(.shortcut,.stat-card,.panel){box-shadow:var(--shadow-card)!important}
+:root[data-theme="dark"] .sidebar-brand .brand-text strong{color:var(--ink)!important}
+:root[data-theme="dark"] :is(.shortcuts,.summary-strip,.empty-state,.empty-chart) svg{color:var(--theme-hover-ink)}
+:root[data-theme="dark"] ::placeholder{color:var(--muted)!important;opacity:.85}
+:root[data-theme="dark"] .app-footer{background:var(--app-bg)!important;color:var(--muted)!important}
+/* Keep theme transitions smooth without disabling user motion preferences */
+@media(prefers-reduced-motion:no-preference){
+  :root :is(.panel,.stat-card,.shortcut,.side-nav-link,.side-nav-heading,.btn,
+    .icon-btn,.sidebar,.workspace .topbar,.appearance-menu button,.invoice-more-toggle,
+    .sidebar-brand-home,.header-account-menu button){
+    transition:background-color .2s ease,color .2s ease,border-color .2s ease,box-shadow .2s ease,transform .15s ease
+  }
+}
+/* Invoice: custom expense descriptions instead of preset categories */
+.invoice-extra-row{grid-template-columns:minmax(0,2fr) minmax(145px,1fr) 40px}
+.invoice-extra-row label:first-child{grid-column:auto;grid-row:auto}
+.invoice-extra-row label:nth-child(2){grid-column:auto;grid-row:auto}
+.invoice-extra-remove{grid-column:auto;grid-row:auto}
+.invoice-fx-box .invoice-fx-fields{grid-template-columns:minmax(0,1fr)}
+@media(max-width:760px){
+  .invoice-extra-row{grid-template-columns:minmax(0,1fr) 40px}
+  .invoice-extra-row label:first-child{grid-column:1/-1;grid-row:auto}
+  .invoice-extra-row label:nth-child(2){grid-column:1;grid-row:auto}
+  .invoice-extra-remove{grid-column:2;grid-row:auto}
+}
+
+/* Full-form shortcuts live outside the select label, so the whole link is easy to tap. */
+.invoice-party-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.invoice-party-field>label{display:flex;flex-direction:column;gap:7px;min-width:0}
+.invoice-party-field .inline-create-link{width:fit-content;max-width:100%;line-height:1.6;min-height:40px;justify-content:flex-start}
+
+/* Cash register, employee attendance, identity scans and theme settings */
+.cash-dashboard-shortcut{min-width:0;cursor:pointer;outline-offset:3px}
+.cash-dashboard-shortcut .stat-card{height:100%;border:1px solid var(--custom-accent-soft)}
+.cash-dashboard-shortcut:hover .stat-card,.cash-dashboard-shortcut:focus-visible .stat-card{border-color:var(--custom-accent)!important;box-shadow:0 5px 20px var(--theme-focus)!important}
+.cash-dashboard-shortcut:focus-visible{outline:2px solid var(--custom-accent)}
+.theme-settings{display:flex;flex-direction:column;gap:14px;min-width:0;direction:rtl;margin:4px 0 16px}
+.theme-mode-options{display:flex;gap:9px;flex-wrap:wrap}
+.theme-option{padding:10px 16px;min-width:100px;display:flex;gap:9px;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:11px}
+.theme-option.selected,.theme-color-choice.selected{border-color:var(--custom-accent)!important;background:var(--custom-accent-soft)!important;color:var(--custom-accent-text)!important;font-weight:750}
+.theme-option:hover,.theme-color-choice:hover{border-color:var(--custom-accent);background:var(--theme-hover);color:var(--theme-hover-ink)}
+.theme-colors{display:flex;flex-wrap:wrap;gap:8px}
+.theme-color-choice{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;display:flex;align-items:center;gap:9px;min-height:42px;padding:8px 11px;font-size:13px}
+.theme-color-circle{width:21px;height:21px;border-radius:50%;display:inline-block;border:2px solid #ffffffaa;box-shadow:0 0 0 1px #7a7a7a55;flex-shrink:0}
+.theme-custom-add{display:flex;flex-wrap:wrap;align-items:end;gap:11px}
+.theme-custom-add label{display:flex;align-items:center;gap:10px;font-size:13px}
+.theme-custom-add input[type=color]{width:70px;height:45px;border:1px solid var(--line);padding:5px;border-radius:8px;cursor:pointer}
+.theme-setup-compact{padding:12px;border:1px solid var(--line,#e1e1e1);border-radius:14px;background:var(--surface,#fff)}
+.identity-scan-field{display:flex;flex-direction:column;gap:9px;min-width:0}
+.identity-scan-field input[type=file]{width:100%;min-width:0;min-height:44px}
+.identity-scan-field small{color:var(--muted);font-size:12px;line-height:1.65}
+.identity-scan-preview{border:1px dashed var(--line);border-radius:11px;padding:10px;display:flex;gap:9px;align-items:center;flex-wrap:wrap;background:var(--surface-secondary)}
+.identity-scan-preview img{width:76px;height:66px;object-fit:contain;border-radius:6px;background:var(--surface)}
+.identity-scan-preview span{overflow-wrap:anywhere;flex:1;min-width:90px}
+.identity-scan-preview .btn{font-size:12px;text-decoration:none}
+.attendance-entry-list{display:flex;flex-direction:column;gap:7px}
+.attendance-entry-row{display:grid;grid-template-columns:minmax(135px,1.2fr) minmax(125px,.8fr) minmax(160px,1fr);align-items:center;gap:12px;padding:11px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
+.attendance-entry-row select,.attendance-entry-row input{min-width:0;min-height:44px;width:100%;font-size:15px}
+.attendance-employee{min-width:0;display:flex;flex-direction:column;gap:3px}
+.attendance-employee strong{font-size:14px;color:var(--ink)}
+.attendance-employee small{color:var(--muted);font-size:12px}
+.attendance-grid .attendance-cell{width:32px;min-width:32px;height:32px;border:1px solid var(--line);background:var(--surface-secondary);color:var(--muted);border-radius:6px;font-weight:800}
+.attendance-cell.present{background:#d1f7e5;color:#117149;border-color:#a0e6c6}
+.attendance-cell.late{background:#fff1cf;color:#896213;border-color:#f4d893}
+.attendance-cell.absent{background:#ffe2e2;color:#ad3d3d;border-color:#eec1c1}
+.attendance-cell.off{background:#dbeaff;color:#355e9c;border-color:#b4d2ff}
+.attendance-cell.unmarked{background:var(--surface-secondary);color:var(--muted)}
+.attendance-grid th:first-child,.attendance-grid td:first-child{position:sticky;right:0;z-index:1;background:var(--surface);min-width:130px}
+:root[data-theme=dark] .theme-settings,:root[data-theme=dark] .theme-option,:root[data-theme=dark] .theme-color-choice,:root[data-theme=dark] .identity-scan-preview,:root[data-theme=dark] .attendance-entry-row{background:var(--surface)!important;color:var(--ink)!important;border-color:var(--line)!important}
+:root[data-theme=dark] .theme-option.selected,:root[data-theme=dark] .theme-color-choice.selected{background:var(--custom-accent-soft)!important;color:var(--custom-accent-text)!important;border-color:var(--custom-accent)!important}
+:root[data-theme=dark] .attendance-grid th:first-child,:root[data-theme=dark] .attendance-grid td:first-child{background:var(--surface)!important}
+:root[data-theme=dark] .attendance-cell.present{background:#174d35;color:#b0f4d5}
+:root[data-theme=dark] .attendance-cell.late{background:#55451e;color:#ffe3a6}
+:root[data-theme=dark] .attendance-cell.absent{background:#542a30;color:#ffc5c5}
+:root[data-theme=dark] .attendance-cell.off{background:#253955;color:#bbd9ff}
+@media(max-width:760px){.attendance-entry-row{grid-template-columns:minmax(0,1fr) minmax(115px,.85fr)}.attendance-entry-row .attendance-note{grid-column:1/-1}.theme-color-choice{font-size:12px}.theme-setup-compact{padding:9px}}
+@media(max-width:430px){.attendance-entry-row{grid-template-columns:minmax(0,1fr)}.attendance-entry-row select,.attendance-entry-row .attendance-note{grid-column:1/-1}.theme-mode-options .theme-option{flex:1}.theme-color-choice{min-height:44px}}
+.identity-form-field{display:flex;flex-direction:column;gap:9px;min-width:0;grid-column:1/-1}
+.identity-form-field>strong{font-size:13px;color:var(--ink)}
+:root .btn.primary,:root .demo-login-form button[type="submit"],:root[data-theme="light"] .btn.primary,:root[data-theme="light"] .demo-login-form button[type="submit"]{color:var(--accent-button-text,#ffffff)!important}
+:root .btn.primary:hover,:root .demo-login-form button[type="submit"]:hover{color:var(--accent-button-text,#ffffff)!important}
+
+/* November refinements: dynamic colors include the sidebar active dot and navbar icons. */
+:root .btn.primary,:root .demo-login-form button[type="submit"],
+:root .settings-password-dialog button[type="submit"] {
+  background:var(--accent-button-bg,var(--custom-accent))!important;
+  border-color:var(--accent-button-bg,var(--custom-accent))!important;
+  color:#fff!important;
+}
+:root .btn.primary:hover,:root .demo-login-form button[type="submit"]:hover,
+:root .settings-password-dialog button[type="submit"]:hover {
+  background:var(--accent-button-hover,var(--custom-accent-text))!important;
+  border-color:var(--accent-button-hover,var(--custom-accent-text))!important;
+  color:#fff!important;
+}
+:root .btn.primary :is(svg,span,strong),:root .demo-login-form button[type="submit"] svg,
+:root .settings-password-dialog button[type="submit"] svg {color:#fff!important;stroke:currentColor}
+:root .side-nav-active-dot,:root .side-nav-indicator,
+:root .side-nav-link.active .side-nav-active-dot,
+:root .period-dot,:root .notification-btn i,
+:root .theme-color-choice.selected .theme-color-circle {background-color:var(--custom-accent)!important}
+:root .side-nav-link.active .side-nav-active-dot{box-shadow:0 0 0 4px var(--theme-focus)!important}
+:root .side-nav-heading.contains-active :is(svg,.side-nav-active-dot),
+:root .side-nav-link.active svg,:root .sidebar-brand-home:hover svg,
+:root .display-mode-toggle:hover svg {color:var(--custom-accent-text)!important}
+:root .display-mode-toggle{display:inline-grid;place-items:center;flex-shrink:0;
+  min-width:42px;min-height:42px;border:1px solid var(--line);border-radius:12px;
+  background:var(--surface);color:var(--ink);cursor:pointer}
+:root .display-mode-toggle:hover,:root .display-mode-toggle:focus-visible{
+  background:var(--theme-hover)!important;border-color:var(--custom-accent)!important;
+  color:var(--theme-hover-ink)!important}
+:root[data-theme="dark"] .display-mode-toggle{background:var(--surface-secondary)!important;color:var(--ink)!important}
+:root[data-theme="dark"] .display-mode-toggle:hover{color:var(--theme-hover-ink)!important}
+:root .table-detail-link{border:none;background:transparent;color:var(--custom-accent-text);
+  text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;
+  font-size:inherit;font-weight:700;cursor:pointer;text-align:right;padding:4px 0}
+:root .table-detail-link:hover{color:var(--custom-accent-text);background:var(--theme-hover);border-radius:5px}
+.entity-details{display:grid;gap:18px;min-width:0}
+.entity-details-heading{display:flex;align-items:center;gap:12px;padding:12px;
+  background:var(--custom-accent-soft);color:var(--custom-accent-text);border-radius:13px}
+.entity-details-heading strong{display:block;font-size:17px}
+.entity-details-heading small{display:block;margin-top:4px;font-size:12px}
+.entity-details-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.entity-details-field{min-width:0;background:var(--surface-secondary,#f6f7f9);
+  border:1px solid var(--line);padding:12px;border-radius:12px;overflow-wrap:anywhere}
+.entity-details-field small{display:block;color:var(--muted);font-size:12px;margin-bottom:7px}
+.entity-details-field strong{display:block;color:var(--ink);font-size:14px;line-height:1.7;white-space:pre-wrap}
+.entity-details-section{border-top:1px solid var(--line);padding-top:14px;min-width:0}
+.entity-details-section h3{font-size:15px;margin:0 0 12px}
+.detail-identity{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.detail-identity img{display:block;max-width:min(100%,280px);max-height:210px;object-fit:contain;
+  border:1px solid var(--line);border-radius:10px}
+.detail-identity .btn{min-height:42px}
+.attendance-assumption{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+.attendance-cell.attendance-auto{opacity:.67;border:1px dashed currentColor!important}
+:root[data-theme="dark"] :is(.entity-details-field,.detail-identity){color:var(--ink)}
+@media(max-width:620px){.entity-details-grid{grid-template-columns:minmax(0,1fr)}
+  .display-mode-toggle{min-width:38px;min-height:38px}}
+
+:root .inspectable-row{cursor:pointer}
+:root .inspectable-row:hover{background:var(--theme-hover)!important}
+:root .inspectable-row:focus-visible{outline:2px solid var(--custom-accent);outline-offset:-2px}
+
+/* Router navigation: only the current link is highlighted. Expanded groups stay neutral. */
+:root .side-nav-heading[aria-expanded="true"]:not(:hover):not(:focus-visible) {
+  background: transparent !important;
+  color: var(--ink-muted, #7c7c88) !important;
+}
+:root .side-nav-heading[aria-expanded="true"]:not(:hover) svg {
+  color: currentColor !important;
+}
+:root .side-nav-link:not(.active):not([aria-current="page"]):not(:hover) {
+  background: transparent !important;
+  color: var(--ink, #4d5260) !important;
+}
+:root .side-nav-link:not(.active):not([aria-current="page"]):not(:hover) svg {
+  color: var(--ink-muted, #8e8e93) !important;
+}
+:root .side-nav-link:focus:not(:focus-visible),
+:root .side-nav-heading:focus:not(:focus-visible) { outline: none !important; box-shadow: none !important; }
+:root .side-nav-link { text-decoration: none; display: flex; align-items: center; }
+
+/* A hovered or expanded group is deliberately less prominent than the current route. */
+:root .side-nav-link:not(.active):not([aria-current="page"]):hover,
+:root .side-nav-heading:hover {
+  background: var(--surface-secondary, #f4f5f7) !important;
+  color: var(--ink, #3a3a40) !important;
+}
+:root .side-nav-link:not(.active):not([aria-current="page"]):hover svg,
+:root .side-nav-heading:hover svg {
+  color: var(--muted, #82828c) !important;
+}

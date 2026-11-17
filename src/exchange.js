@@ -1,3 +1,4 @@
+import {totalExtras,normalizeExtraExpenses} from "./invoiceExtras.js";
 // Manual FX conversion for the client preview; AFN is the accounting/base currency.
 export const CURRENCY_LABELS = {AFN:'افغانی (AFN)',USD:'دالر امریکایی (USD)',PKR:'روپیه پاکستانی (PKR)'};
 export const CURRENCIES = Object.keys(CURRENCY_LABELS);
@@ -14,7 +15,7 @@ export function currencyRate(currency,rates) {
   if(currency==='AFN') return 1;
   if(!['USD','PKR'].includes(currency)) throw Error('واحد پول معتبر نیست.');
   const rate=normalizeRates(rates)[currency];
-  if(!rate) throw Error(`نرخ ${currency} را ابتدا در تنظیمات وارد کنید.`);
+  if(!rate) throw Error(`نرخ ${currency} را در همین بل یا فورم وارد کنید.`);
   return rate;
 }
 export function toAfn(amount,currency='AFN',rates={}) {
@@ -27,15 +28,18 @@ export function fromAfn(amount,currency='AFN',rates={}) {
   if(!Number.isFinite(numeric)||numeric<0) throw Error('مبلغ معتبر نیست.');
   return roundMoney(numeric/currencyRate(currency,rates));
 }
-export function convertInvoiceToAfn(items,paid,currency,rates) {
+export function convertInvoiceToAfn(items,paid,currency,rates,extraExpenses=[]) {
   const rate=currencyRate(currency,rates);
   const totalSource=items.reduce((sum,item)=>sum+Number(item.quantity)*Number(item.price)-Number(item.discount||0),0);
   if(!Number.isFinite(totalSource)||totalSource<0) throw Error('مجموع بل معتبر نیست.');
-  const total=toAfn(totalSource,currency,rates);
+  const expensesSource=totalExtras(extraExpenses);
+  const total=toAfn(roundMoney(totalSource+expensesSource),currency,rates);
   const amountPaid=toAfn(paid,currency,rates);
   if(amountPaid>total) throw Error('پرداخت بیشتر از مجموع بل است.');
   return {
-    rate,total,paid:amountPaid,balance:roundMoney(total-amountPaid),foreignTotal:roundMoney(totalSource),foreignPaid:roundMoney(paid),
+    rate,total,paid:amountPaid,balance:roundMoney(total-amountPaid),foreignTotal:roundMoney(totalSource+expensesSource),foreignPaid:roundMoney(paid),
+    lineSubtotal:toAfn(totalSource,currency,rates),extraExpensesTotal:toAfn(expensesSource,currency,rates),
+    extraExpenses:normalizeExtraExpenses(extraExpenses,amount=>toAfn(amount,currency,rates)),
     items:items.map(item=>({...item,sourcePrice:Number(item.price),sourceDiscount:Number(item.discount||0),price:toAfn(item.price,currency,rates),discount:toAfn(item.discount||0,currency,rates)})),
   };
 }
