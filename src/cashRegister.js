@@ -16,9 +16,16 @@ export function cashRegister(data={}, openingCash=0) {
     add(`bill-${invoice.id}`,invoice.date,`${kind} #${invoice.number||invoice.id}${invoice.party?` — ${invoice.party}`:''}`,sign*Number(invoice.paid||0) - (invoice.payments||[]).reduce((s,p)=>s+sign*Number(p.amount||0),0),kind,invoice.id);
     for(const payment of invoice.payments||[]) {
       const isSale=invoice.type==='sale';
+      if(payment.viaCash===false) continue;
       add(`payment-${invoice.id}-${payment.id}`,payment.date,`${isSale?'دریافت قرض مشتری':'پرداخت قرض عرضه‌کننده'} — بل #${invoice.number||invoice.id}`,sign*Number(payment.amount||0),isSale?'دریافت قرض مشتری':'پرداخت قرض عرضه‌کننده',invoice.id);
     }
   }
+  // Shipment charges paid from the cash register (not included in the invoice amount).
+  for(const shipment of data.shipments||[]) for(const charge of shipment.costs||[]) if(charge.paid)
+    add(`shipment-${shipment.id}-${charge.id}`,shipment.date,`مصرف محموله ${shipment.reference}: ${charge.description}`,-Number(charge.afn||0),'مصارف محموله',shipment.id);
+  // Payments between traders can be outside the shop cash register.
+  for(const settlement of data.settlements||[]) if(settlement.viaCash && !settlement.invoiceId && ['receive','pay'].includes(settlement.kind))
+    add(`settlement-${settlement.id}`,settlement.date,`${settlement.kind==='receive'?'دریافت':'پرداخت'} علی‌الحساب: ${settlement.party}`,settlement.kind==='receive'?Number(settlement.afn||0):-Number(settlement.afn||0),'تسویه حساب',settlement.id);
   for(const expense of data.expenses||[]) add(`expense-${expense.id}`,expense.date,`مصرف: ${expense.name||'مصرف'}`,-Number(expense.amount||0),'مصارف',expense.id);
   for(const salary of data.payroll||[]) if(salary.status==='paid') {
     const net=Math.max(0,Number(salary.net??(Number(salary.base||0)+Number(salary.bonus||0)-Number(salary.deduction||0))));

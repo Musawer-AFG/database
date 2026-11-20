@@ -75,6 +75,7 @@ import { AFGHAN_MONTHS, DEFAULT_WAREHOUSE, afghanCalendarParts, afghanDateOrder,
 import "./styles.css";
 import "./responsive.css";
 import "./theme.css";
+import "./reportUpgrade.css";
 import { AFGHAN_PROVINCES, AFGHAN_FIELD_CHOICES, dateChoiceParts, buildAfghanDate } from "./afghanLocale.js";
 import { customerDebtAging, monthlySalesPurchases, lowStockProducts, financialYearOptions, financialYearRecordCount, afghanDateDayNumber } from "./dashboardMetrics.js";
 import { PERMISSION_GROUPS, PAGE_PERMISSION, ENTITY_MANAGE_PERMISSION, INVOICE_PERMISSIONS, initialAccess, normalizeAccess, canDo, canOpenPage, availablePages, saveRoleRecord, removeRoleRecord, saveUserRecord, removeUserRecord, setAccountPassword, setRecoveryRecord } from "./accessControl.js";
@@ -82,7 +83,7 @@ import { makeDemoCredential, verifyDemoCredential, normalizeUsername, validUsern
 import { createRecoveryCode, createRecoveryRecord, verifyRecoveryCode } from "./demoRecovery.js";
 import { quickSearch, transactionsForDay } from "./headerTools.js";
 import { employeeAccess, effectiveDemoAccess, kabulLocalDateTime, normalizeScheduleFields, validAfghanDateTime, validShiftTime } from "./workHours.js";
-import { CURRENCIES, CURRENCY_LABELS, DEFAULT_RATES, normalizeRates, currencyRate, toAfn, fromAfn, roundMoney, convertInvoiceToAfn } from "./exchange.js";
+import { CURRENCIES, CURRENCY_LABELS, DEFAULT_RATES, normalizeRates, currencyRate, toAfn, fromAfn, roundMoney, convertInvoiceToAfn, rateFieldFor } from "./exchange.js";
 import { FRESH_STORAGE_KEYS, validateFirstSetup, clearFreshStorage } from "./freshSetup.js";
 import { readBusinessLogo, safeBusinessLogo } from "./businessLogo.js";
 import { totalExtras, validateExtras, newExtraExpense } from "./invoiceExtras.js";
@@ -91,6 +92,21 @@ import { cashRegister, canAffordCash, buildManualCashEntry } from "./cashRegiste
 import { ATTENDANCE_OPTIONS, attendanceKey, attendanceDays, attendanceTotals, recordAttendance, resolvedAttendance, attendanceOverview } from "./attendanceLogic.js";
 import { THEME_PRESETS, themeColors, normalizeAppearance, addCustomColor, validHex } from "./themePalette.js";
 import { saveIdentityScan, loadIdentityScan, removeIdentityScan, clearIdentityScans } from "./idDocuments.js";
+import { createShipment, shipmentCost, createSettlement, applySettlement, buildAccountingJournal } from "./tradeAccounting.js";
+import { ShipmentsPage, TraderAccountsPage, ProfitAnalysisPage } from "./TradeWorkflows.jsx";
+import {afghanFromGregorian,gregorianFromAfghan,formatCalendarDate,normalizedCalendarMode,groupedNumber,ungroupedNumber} from "./calendarDisplay.js";
+import {everydayReportSummary, accountingReportSummary} from "./reportSimple.js";
+import {CalendarModeContext} from "./calendarMode.js";
+import GroupedNumberInput from "./GroupedNumberInput.jsx";
+import {contractDraft,selectContractPreset,validateContract,paymentContractError,requiredDownPaymentSource,contractSnapshot,dueDate} from './customerContracts.js';
+import {invoicePrintHtml,contractPrintHtml,printHtml} from './printDocuments.js';
+import {normalizeDocumentDesign,resolveDocumentDesign} from './documentDesigns.js';
+import {updateInvoiceLine,refreshCatalogPrices} from './catalogPricing.js';
+import {afghanKabulToday} from './attendanceLogic.js';
+import './contractAttendance.css';
+
+
+
 
 const afghanMonths = [
   "حمل",
@@ -148,6 +164,7 @@ const navGroups = [
       { id: "accounts", label: "سرفصل‌های حساب" },
       { id: "expenses", label: "درآمد و مصارف" },
       { id: "cashRegister", label: "صندوق نقدی" },
+      { id: "traderAccounts", label: "حسابات طرف‌های معامله" },
     ],
   },
   {
@@ -159,6 +176,7 @@ const navGroups = [
       { id: "journalReport", label: "گزارش روزنامه" },
       { id: "ledgerReport", label: "گزارش کل" },
       { id: "documentReport", label: "گزارش اسناد" },
+      { id: "profitAnalysis", label: "تحلیل مفاد و قیمت تمام‌شده" },
     ],
   },
   {
@@ -169,6 +187,7 @@ const navGroups = [
       { id: "products", label: "محصولات" },
       { id: "groups", label: "گروه‌های محصولات" },
       { id: "warehouses", label: "گدام‌ها" },
+      { id: "shipments", label: "مدیریت کانتنرها" },
     ],
   },
   {
@@ -206,6 +225,9 @@ const navigationIcons = {
   accounts: FolderTree,
   expenses: Wallet,
   cashRegister: CircleDollarSign,
+  traderAccounts: ArrowLeftRight,
+  shipments: Warehouse,
+  profitAnalysis: TrendingUp,
   reports: FileBarChart,
   trialBalance: Scale,
   journalReport: ClipboardList,
@@ -365,7 +387,7 @@ const entityConfigs = {
       ["gender", "جنسیت"],
       ["marital", "حالت مدنی"],
       ["nationality", "تابعیت"],
-      ["birthDate", "تاریخ تولد (هجری شمسی)"],
+      ["birthDate", "تاریخ تولد"],
       ["phone", "نمبر تیلفون"],
       ["province", "ولایت"],
       ["district", "ولسوالی / ناحیه"],
@@ -375,8 +397,8 @@ const entityConfigs = {
       ["workshop", "شعبه / محل کار"],
       ["shift", "شیفت کاری"],
       ["contract", "نوع قرارداد"],
-      ["startDate", "تاریخ آغاز قرارداد (هجری شمسی)"],
-      ["endDate", "تاریخ ختم قرارداد (هجری شمسی)"],
+      ["startDate", "تاریخ آغاز قرارداد"],
+      ["endDate", "تاریخ ختم قرارداد"],
       ["education", "سطح تحصیلات"],
       ["salary", "معاش ماهانه (افغانی)"],
       ["status", "وضعیت"],
@@ -427,6 +449,8 @@ const initialData = {
   attendance: [],
   stockMovements: [],
   cashEntries: [],
+  shipments: [],
+  settlements: [],
 };
 function loadInitial() {
   try {
@@ -462,6 +486,7 @@ const defaultPreferences = () => ({
   userTitle: "مدیر سیستم",
   rates: {...DEFAULT_RATES},
   openingCash: 0,
+  calendarMode: "shamsi",
 });
 function loadPreferences() {
   const defaults = defaultPreferences();
@@ -471,11 +496,14 @@ function loadPreferences() {
       ...defaults,
       shopName: String(stored.shopName || defaults.shopName),
       shopLogo: safeBusinessLogo(stored.shopLogo),
+      ...(stored.billDesign?{billDesign:normalizeDocumentDesign(stored.billDesign)}:{}),
+      ...(stored.contractDesign?{contractDesign:normalizeDocumentDesign(stored.contractDesign)}:{}),
       fiscalYear: Number(stored.fiscalYear) >= 1300 && Number(stored.fiscalYear) <= 1600 ? Number(stored.fiscalYear) : defaults.fiscalYear,
       userName: String(stored.userName || defaults.userName),
       userTitle: String(stored.userTitle || defaults.userTitle),
       rates: normalizeRates(stored.rates),
       openingCash: Number.isFinite(Number(stored.openingCash)) && Number(stored.openingCash)>=0 ? Number(stored.openingCash) : 0,
+      calendarMode: normalizedCalendarMode(stored.calendarMode),
     };
   } catch { return defaults; }
 }
@@ -908,6 +936,8 @@ function App() {
     setModal({type:'entity',key});
   }
   function cancelEntityForm() {
+    const persisted=editId?data[modal.key]?.find(x=>x.id===editId):null;
+    for(const [draftScan,oldScan] of [[form.identityScan,persisted?.identityScan],[form.saleContract?.guarantorScan,persisted?.saleContract?.guarantorScan]]){if(draftScan?.id&&draftScan.id!==oldScan?.id)removeIdentityScan(draftScan.id).catch(()=>{});}
     if (invoicePartyReturn) {
       setPage(invoicePartyReturn.originPage);
       setModal({type:'invoice',invoiceType:invoicePartyReturn.invoiceType});
@@ -928,6 +958,7 @@ function App() {
     if (key === "products" && ["quantity", "cost", "price"].some(k => Number(form[k] || 0) < 0)) {
       notify("تعداد و قیمت محصول نباید منفی باشد."); return;
     }
+    if(key==='customers') {const error=validateContract(form.saleContract);if(error){notify(error);return;}}
     const entry = { ...form, id: editId ?? Date.now() };
     if (key === "products") {
       const proposed = { ...data, products: editId
@@ -941,6 +972,7 @@ function App() {
         notify("برای حفظ بل‌های قدیمی، نام این محصول را نمی‌توان تغییر داد."); return;
       }
     }
+    const previousGuarantorScan=editId&&key==='customers'?data.customers.find(x=>x.id===editId)?.saleContract?.guarantorScan:null;
     const previousDocument=editId && (key==='employees'||key==='customers') ? data[key].find(x=>x.id===editId)?.identityScan : null;
     setData((prev) => ({
       ...prev,
@@ -948,6 +980,7 @@ function App() {
         ? prev[key].map((r) => (r.id === editId ? entry : r))
         : [...prev[key], entry],
     }));
+    if(previousGuarantorScan?.id&&previousGuarantorScan.id!==entry.saleContract?.guarantorScan?.id)removeIdentityScan(previousGuarantorScan.id).catch(()=>{});
     if(previousDocument?.id && previousDocument.id!==entry.identityScan?.id) removeIdentityScan(previousDocument.id).catch(()=>{});
     if(invoicePartyReturn && !editId && invoicePartyReturn.entityKey === key) {
       setInvoiceForm(prev=>({...prev,party:String(entry.name||'').trim()}));
@@ -976,17 +1009,19 @@ function App() {
       data.invoices.some(i => String(i.warehouseId) === String(id)) ||
       data.stockMovements.some(m => [m.warehouseId,m.fromWarehouseId,m.toWarehouseId].some(x => String(x)===String(id)))
     )) { notify("این گدام مورد استفاده است و حذف نمی‌شود."); return; }
+    const guarantorScan=key==='customers'?data.customers.find(x=>x.id===id)?.saleContract?.guarantorScan:null;
     const attached=key==='employees'||key==='customers' ? data[key].find(x=>x.id===id)?.identityScan : null;
     setData((prev) => ({
       ...prev,
       [key]: prev[key].filter((r) => r.id !== id),
     }));
+    if(guarantorScan?.id) removeIdentityScan(guarantorScan.id).catch(()=>{});
     if(attached?.id) removeIdentityScan(attached.id).catch(()=>{});
     notify("مورد حذف شد.");
   }
   function openInvoice(type) {
     if(!requirePermission(INVOICE_PERMISSIONS[type]?.manage)) return;
-    setInvoiceForm({ date: today, party: "", title: "", paid: 0, notes: "", warehouseId: DEFAULT_WAREHOUSE, currency:"AFN", usdRate:"", pkrRate:"", extraExpenses:[] });
+    setInvoiceForm({ date: today, party: "", title: "", paid: 0, notes: "", warehouseId: DEFAULT_WAREHOUSE, currency:"AFN", usdRate:"", pkrRate:"", aedRate:"", eurRate:"", extraExpenses:[],shipmentId:"",soldTonnes:"" });
     setInvoiceItems([{ product: "", quantity: 1, price: "", discount: 0 }]);
     setModal({ type: "invoice", invoiceType: type });
   }
@@ -999,7 +1034,7 @@ function App() {
     }
     const extraError=validateExtras(invoiceForm.extraExpenses||[]);
     if(extraError){notify(extraError);return;}
-    const invoiceRates={USD:invoiceForm.usdRate,PKR:invoiceForm.pkrRate};
+    const invoiceRates={USD:invoiceForm.usdRate,PKR:invoiceForm.pkrRate,AED:invoiceForm.aedRate,EUR:invoiceForm.eurRate};
     let converted;
     try { converted=convertInvoiceToAfn(invoiceItems,invoiceForm.paid||0,invoiceForm.currency||'AFN',invoiceRates,invoiceForm.extraExpenses||[]); }
     catch(error) { notify(error.message); return; }
@@ -1029,24 +1064,38 @@ function App() {
       notify("برای خرید قرضه، عرضه‌کننده را انتخاب کنید.");
       return;
     }
+    const contractCustomer=modal.invoiceType==='sale'?data.customers.find(c=>c.name===invoiceForm.party):null;
+    if(contractCustomer?.saleContract?.enabled && invoiceItems.some(i=>i.weightPerUnit!==undefined&&i.weightPerUnit!==''&&(!Number.isFinite(Number(i.weightPerUnit))||Number(i.weightPerUnit)<=0))){notify('وزن هر بوجی یا واحد باید از صفر بیشتر باشد.');return;}
+    const contractError=paymentContractError(subtotal,initialPaid,contractCustomer?.saleContract,invoiceForm.date);
+    if(contractError){notify(contractError);return;}
+    if(modal.invoiceType==='sale' && invoiceForm.shipmentId){
+      const sh=data.shipments.find(x=>String(x.id)===String(invoiceForm.shipmentId));
+      const tonnes=Number(invoiceForm.soldTonnes);
+      const already=data.invoices.filter(x=>x.type==='sale'&&String(x.shipmentId)===String(invoiceForm.shipmentId)).reduce((s,x)=>s+Number(x.soldTonnes||0),0);
+      if(!sh||!Number.isFinite(tonnes)||tonnes<=0||already+tonnes>Number(sh.tonnes)+0.000001){
+        notify('مقدار تن فروش‌شده از وزن موجود همان محموله بیشتر است یا معتبر نیست.');return;
+      }
+    }
     const invoice = {
       id: Date.now(),
       number:
-        data.invoices.filter((x) => x.type === modal.invoiceType).length + 1,
+        Math.max(0,...data.invoices.filter(x=>x.type===modal.invoiceType).map(x=>Number(x.number)||0))+1,
       type: modal.invoiceType,
       ...invoiceForm,
       currency:invoiceForm.currency||'AFN',exchangeRate:converted.rate,
-      usdRate:Number(invoiceForm.usdRate||0),pkrRate:Number(invoiceForm.pkrRate||0),
+      usdRate:Number(invoiceForm.usdRate||0),pkrRate:Number(invoiceForm.pkrRate||0),aedRate:Number(invoiceForm.aedRate||0),eurRate:Number(invoiceForm.eurRate||0),
       extraExpenses:converted.extraExpenses,extraExpensesTotal:converted.extraExpensesTotal,
       lineSubtotal:converted.lineSubtotal,
       foreignTotal:converted.foreignTotal,foreignPaid:converted.foreignPaid,
-      items: converted.items.map((x) => ({ ...x, productId: findProduct(x, data.products)?.id })),
+      items: converted.items.map((x) => ({ ...x, productId: findProduct(x, data.products)?.id, unit: findProduct(x,data.products)?.unit||"" })),
       total: subtotal,
       paid: initialPaid,
       balance: converted.balance,
       payments: [],
       status: initialPaid >= subtotal ? "پرداخت کامل" : "پرداخت ناقص",
     };
+    const customerContract=contractSnapshot(contractCustomer,preferences,invoice);
+    if(customerContract)invoice.saleContract=customerContract;
     setData((prev) => ({ ...prev, invoices: [invoice, ...prev.invoices] }));
     setModal(null);
     notify("بل ثبت شد.");
@@ -1067,6 +1116,7 @@ function App() {
   }
   function deleteInvoice(id) {
     const existing = data.invoices.find(x => x.id === id);
+    if(existing?.type==='purchase' && (data.shipments||[]).some(sh=>String(sh.purchaseInvoiceId)===String(id))) {notify('نخست محموله مربوط به این بل خرید را بررسی یا حذف کنید.');return;}
     if(!existing || !requirePermission(INVOICE_PERMISSIONS[existing.type]?.manage)) return;
     if (!existing) return;
     const before = inventoryState(data);
@@ -1083,7 +1133,7 @@ function App() {
   function openPayment(invoice) {
     if(!requirePermission(invoice.type==='purchase'?'purchases.manage':'sales.collect')) return;
     if (!['sale','purchase'].includes(invoice.type) || Number(invoice.balance || 0) <= 0) return;
-    setPaymentForm({ amount: "", currency:"AFN", usdRate:invoice.usdRate||"", pkrRate:invoice.pkrRate||"", date: today, notes: "" });
+    setPaymentForm({ amount: "", currency:"AFN", usdRate:invoice.usdRate||"", pkrRate:invoice.pkrRate||"",aedRate:invoice.aedRate||"",eurRate:invoice.eurRate||"", date: today, notes: "" });
     setModal({ type: "payment", invoiceId: invoice.id });
   }
   function savePayment(e) {
@@ -1091,7 +1141,7 @@ function App() {
     const invoiceType=data.invoices.find(x=>x.id===modal?.invoiceId)?.type;
     if(!requirePermission(invoiceType==='purchase'?'purchases.manage':'sales.collect')) return;
     let amount;
-    try {amount=toAfn(paymentForm.amount,paymentForm.currency||'AFN',{USD:paymentForm.usdRate,PKR:paymentForm.pkrRate});}
+    try {amount=toAfn(paymentForm.amount,paymentForm.currency||'AFN',{USD:paymentForm.usdRate,PKR:paymentForm.pkrRate,AED:paymentForm.aedRate,EUR:paymentForm.eurRate});}
     catch(error) { notify(error.message); return; }
     const invoice = data.invoices.find((x) => x.id === modal.invoiceId && ['sale','purchase'].includes(x.type));
     if (!invoice) { notify("بل فروش پیدا نشد."); return; }
@@ -1110,7 +1160,7 @@ function App() {
     const payment = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       amount,
-      sourceAmount:Number(paymentForm.amount),currency:paymentForm.currency||'AFN',exchangeRate:currencyRate(paymentForm.currency||'AFN',{USD:paymentForm.usdRate,PKR:paymentForm.pkrRate}),
+      sourceAmount:Number(paymentForm.amount),currency:paymentForm.currency||'AFN',exchangeRate:currencyRate(paymentForm.currency||'AFN',{USD:paymentForm.usdRate,PKR:paymentForm.pkrRate,AED:paymentForm.aedRate,EUR:paymentForm.eurRate}),
       date: paymentForm.date || today,
       notes: paymentForm.notes.trim(),
     };
@@ -1246,11 +1296,24 @@ function App() {
     notify('حرکت دستی صندوق حذف شد.');
   }
   function saveAttendanceRecord(employeeId,date,status,notes=''){
-    if(!requirePermission('employees.manage')) return;
+    if(!requirePermission('employees.manage')) return false;
     try {
       if(!data.employees.some(e=>String(e.id)===String(employeeId))) throw Error('کارمند موجود نیست.');
+      recordAttendance([],employeeId,date,status,notes);
       setData(prev=>({...prev,attendance:recordAttendance(prev.attendance,employeeId,date,status,notes)}));
-    } catch(error){notify(error.message);}
+      return true;
+    } catch(error){notify(error.message);return false;}
+  }
+  function saveAttendanceBatch(employeeIds,date){
+    if(!requirePermission('employees.manage'))return false;
+    const ids=new Set(employeeIds.map(String));
+    const staff=data.employees.filter(e=>ids.has(String(e.id)));
+    const today=afghanKabulToday();
+    setData(prev=>{
+      let rows=prev.attendance||[];
+      for(const employee of staff){const old=rows.find(r=>String(r.employeeId)===String(employee.id)&&r.date===date);const result=resolvedAttendance(old,date,today,employee);if(result.automatic&&result.status==='present')rows=recordAttendance(rows,employee.id,date,'present',old?.notes||'');}
+      return rows===prev.attendance?prev:{...prev,attendance:rows};
+    });return true;
   }
   const totals = useMemo(
     () => ({
@@ -1279,6 +1342,29 @@ function App() {
     expenses: fiscalReport.expenses, paidWages: fiscalReport.paidPayroll,
   };
 
+  function saveShipmentFromForm(draft) {
+    if(!requirePermission('purchases.manage')) return false;
+    const shipment=createShipment(draft,data);
+    const paid=shipmentCost({...data,shipments:[...data.shipments,shipment]},shipment).paidCharges;
+    if(paid>0&&!canAffordCash(data,preferences.openingCash,paid)) throw Error('پول کافی در صندوق برای مصارف پرداخت‌شده محموله نیست.');
+    setData(prev=>({...prev,shipments:[shipment,...prev.shipments]}));
+    notify('محموله و قیمت تمام‌شده آن ثبت شد.'); return true;
+  }
+  function removeShipmentRecord(id){
+    if(!requirePermission('purchases.manage')) return false;
+    if(data.invoices.some(i=>i.type==='sale'&&String(i.shipmentId)===String(id))){notify('این محموله به بل‌های فروش وصل است. نخست ارتباط فروش را بررسی کنید.');return false;}
+    setData(prev=>({...prev,shipments:prev.shipments.filter(s=>String(s.id)!==String(id))}));
+    notify('محموله حذف شد؛ محاسبات قیمت و صندوق بازسازی شدند.'); return true;
+  }
+  function addTraderSettlement(draft){
+    if(!requirePermission('accounting.manage')) return false;
+    const entry=createSettlement(draft,data);
+    if(entry.viaCash&&entry.kind==='pay'&&!canAffordCash(data,preferences.openingCash,entry.afn))
+      throw Error('موجودی صندوق برای این پرداخت کافی نیست.');
+    setData(prev=>applySettlement(prev,entry));
+    notify(entry.invoiceId?'پرداخت و مانده بل به‌روز شد.':'تسویه علی‌الحساب ثبت شد.'); return true;
+  }
+
   function renderPage() {
     if(!canView(page)) return <AccessDenied onBack={() => setCurrentPage(availablePages(access,activeUserId)[0] || 'help')} />;
     if (page === "dashboard")
@@ -1295,6 +1381,9 @@ function App() {
           can={can}
         />
       );
+    if(page==='shipments') return <ShipmentsPage data={data} onAdd={can('purchases.manage')?saveShipmentFromForm:null} onDelete={can('purchases.manage')?removeShipmentRecord:null}/>;
+    if(page==='traderAccounts') return <TraderAccountsPage data={data} onAdd={can('accounting.manage')?addTraderSettlement:null}/>;
+    if(page==='profitAnalysis') return <ProfitAnalysisPage data={data}/>;
     if (page === "warehouseDashboard")
       return (
         <WarehouseDashboard data={data} totals={totals} onNavigate={setCurrentPage} onStock={can('inventory.manage') ? openStockMovement : null} />
@@ -1329,6 +1418,7 @@ function App() {
           onEdit={can(ENTITY_MANAGE_PERMISSION[page]) ? (r) => openEntityForm(page, r) : null}
           onDelete={can(ENTITY_MANAGE_PERMISSION[page]) ? (id) => deleteEntity(page, id) : null}
           receivables={page === "customers" ? customerReceivables(data.invoices) : {}}
+          preferences={preferences}
           inventory={inventoryState(data)}
         />
       );
@@ -1336,6 +1426,7 @@ function App() {
     if (["sales", "purchases", "returns"].includes(page))
       return (
         <InvoicesPage
+          preferences={preferences}
           page={page}
           data={data}
           search={search}
@@ -1373,9 +1464,9 @@ function App() {
     if (page === "cashRegister") return <CashRegisterPage state={cashState} onSave={can('accounting.manage')?saveCashEntry:null} onDelete={can('accounting.manage')?deleteCashEntry:null} />;
     if (page === "payroll")
       return <PayrollPage data={data} onNavigate={setCurrentPage} onAdd={can('payroll.manage') ? openPayroll : null} onPaid={can('payroll.pay') ? markPayrollPaid : null} onDelete={can('payroll.manage') ? deletePayroll : null} />;
-    if (page === "attendance") return <AttendancePage data={data} onMark={can('employees.manage')?saveAttendanceRecord:null} />;
+    if (page === "attendance") return <AttendancePage data={data} onMark={can('employees.manage')?saveAttendanceRecord:null} onMarkAll={can('employees.manage')?saveAttendanceBatch:null} />;
     if (["reports", "trialBalance", "journalReport", "ledgerReport", "documentReport"].includes(page))
-      return <ReportsPage page={page} data={data} />;
+      return <ReportsPage page={page} data={data} openingCash={preferences.openingCash} />;
     if (page === "settings") return <SettingsPage preferences={preferences} years={years} data={data} appearance={appearance} onSaveAppearance={saveAppearance} onSave={savePreferences} onClearTransactions={clearTransactionsProtected} onResetBusiness={resetBusinessProtected} canManage={can('settings.manage')} />;
     if (page === "roles") return <RolesPage access={access} employees={data.employees} demoLoginEnabled={demoLoginEnabled} onActivateDemoLogin={activateDemoLogin} onIssueRecovery={issueRecovery} onSaveRole={saveRole} onDeleteRole={deleteRole} onSaveUser={saveUser} onDeleteUser={deleteUser} onPreviewUser={previewAs} />;
     if (page === "profile") return <ProfilePage preferences={{...preferences,userName:activeUser.name,userTitle:activeUser.title}} onSave={saveProfile} onNavigate={setCurrentPage} canEdit={can('profile.edit')} roleName={activeRole?.name||''} />;
@@ -1403,6 +1494,7 @@ function App() {
     return <DemoChangePasswordScreen shopName={preferences.shopName} user={signedInUser} onChangePassword={changeOwnDemoPassword}/>;
   const visiblePage = renderPage();
   return (
+    <CalendarModeContext.Provider value={preferences.calendarMode || "shamsi"}>
     <div
       className={`app-shell ${mobileMenu ? "sidebar-open" : ""} ${sidebarVisible ? "" : "sidebar-collapsed"}`}
       dir="ltr"
@@ -1436,7 +1528,7 @@ function App() {
           <span className="period-dot" aria-hidden="true"></span>
           <span className="sidebar-period-copy">
             <strong>سال مالی {number(preferences.fiscalYear)}</strong>
-            <small>{today}</small>
+            <small>{formatCalendarDate(today,preferences.calendarMode)}</small>
           </span>
           <ChevronDown className={sidebarPopup === "year" ? "rotate-chevron" : ""} size={15} />
         </button>
@@ -1572,7 +1664,7 @@ function App() {
             </button>
             <QuickSearchBox search={search} onSearch={setSearch} results={foundItems} onSelect={goToSearchResult} open={searchOpen} setOpen={setSearchOpen} />
             <div className="header-date-wrap" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget)) setCalendarOpen(false)}}>
-              <button type="button" className="date-chip date-chip-button" aria-expanded={calendarOpen} aria-label="باز کردن تقویم هجری شمسی" title="تقویم و فعالیت‌های روزانه" onClick={()=>{setCalendarOpen(v=>!v);setAccountOpen(false);setSearchOpen(false)}}><CalendarDays size={17}/><span>{today}</span></button>
+              <button type="button" className="date-chip date-chip-button" aria-expanded={calendarOpen} aria-label="باز کردن تقویم" title="تقویم و فعالیت‌های روزانه" onClick={()=>{setCalendarOpen(v=>!v);setAccountOpen(false);setSearchOpen(false)}}><CalendarDays size={17}/><span>{formatCalendarDate(today,preferences.calendarMode)}</span></button>
               {calendarOpen && <AfghanHeaderCalendar data={data} todayLabel={today} canView={canView} onNavigate={setCurrentPage} onClose={()=>setCalendarOpen(false)}/>}
             </div>
             <div className="header-notice-wrap">
@@ -1621,7 +1713,7 @@ function App() {
               <h1>{currentTitle}</h1>
             </div>
             <div className="toolbar-right">
-              <span className="today-label">{today}</span>
+              <span className="today-label">{formatCalendarDate(today,preferences.calendarMode)}</span>
             </div>
           </div>
           <Routes>
@@ -1668,6 +1760,7 @@ function App() {
         >
           {modal.type === "entity" && (
             <EntityForm
+              preferences={preferences}
               config={entityConfigs[modal.key]}
               form={form}
               setForm={setForm}
@@ -1718,6 +1811,7 @@ function App() {
         </Modal>
       )}
     </div>
+    </CalendarModeContext.Provider>
   );
 }
 
@@ -2142,6 +2236,7 @@ function EntityPage({
   onDelete,
   receivables = {},
   inventory,
+  preferences,
 }) {
   const cfg = entityConfigs[page];
   const [selectedId,setSelectedId]=useState(null);
@@ -2221,12 +2316,13 @@ function EntityPage({
         />
       </Panel>
       {canInspect&&selectedRecord&&<Modal title={`${page==='customers'?'معلومات مشتری':'معلومات کارمند'} — ${page==='customers'?selectedRecord.name:[selectedRecord.firstName,selectedRecord.lastName].filter(Boolean).join(' ')}`} onClose={()=>setSelectedId(null)}>
-        <EntityDetails record={selectedRecord} config={cfg} page={page} data={data}/>
+        <EntityDetails record={selectedRecord} config={cfg} page={page} data={data} preferences={preferences} onEdit={onEdit?()=>{setSelectedId(null);onEdit(selectedRecord);}:null}/>
       </Modal>}
     </>
   );
 }
 function DataTable({ columns, rows, onEdit, onDelete, onView, empty }) {
+  const calendarMode=React.useContext(CalendarModeContext);
   return (
     <div className="table-wrap mobile-card-table">
       <table>
@@ -2247,8 +2343,8 @@ function DataTable({ columns, rows, onEdit, onDelete, onView, empty }) {
               {columns.map(([key]) => (
                 <td key={key} data-label={columns.find(([columnKey]) => columnKey === key)?.[1]}>
                   {onView && (key==='name'||key==='firstName')
-                    ? <button type="button" className="table-detail-link" onClick={()=>onView(row)} title="دیدن معلومات کامل">{formatCell(row[key],key)}</button>
-                    : formatCell(row[key], key)}
+                    ? <button type="button" className="table-detail-link" onClick={()=>onView(row)} title="دیدن معلومات کامل">{formatCell(row[key],key,calendarMode)}</button>
+                    : formatCell(row[key], key,calendarMode)}
                 </td>
               ))}
               {(onEdit || onDelete || onView) && (
@@ -2314,7 +2410,8 @@ function IdentityScanReadOnly({attachment}) {
     {error&&<small className="form-error">{error}</small>}
   </div>;
 }
-function EntityDetails({record,config,page,data}) {
+function EntityDetails({record,config,page,data,preferences,onEdit}) {
+  const calendarMode=React.useContext(CalendarModeContext);
   const fields=config.fields.filter(([key],index,all)=>key!=='identityScan'&&all.findIndex(([other])=>other===key)===index);
   const customerBills=page==='customers'?(data.invoices||[]).filter(x=>x.type==='sale'&&x.party===record.name):[];
   const employeePayroll=page==='employees'?(data.payroll||[]).filter(x=>String(x.employeeId)===String(record.id)):[];
@@ -2326,6 +2423,7 @@ function EntityDetails({record,config,page,data}) {
       {page==='customers'&&<div className="entity-details-field"><small>مانده قرضداری</small><strong>{money(record.balance||0)}</strong></div>}
     </div>
     <div className="entity-details-section"><h3>سکن تذکره</h3><IdentityScanReadOnly attachment={record.identityScan}/></div>
+    {page==='customers'&&record.saleContract?.enabled&&<div className="entity-details-section"><h3>شرایط قرارداد مشتری</h3>{onEdit&&<button type="button" className="btn secondary" onClick={onEdit}><Pencil size={15}/> ویرایش قرارداد</button>}<p>پیش‌پرداخت {number(record.saleContract.percent)}٪ — مهلت باقی‌داری {number(record.saleContract.days)} روز</p><p className="contract-wrap-text">{record.saleContract.terms}</p><h4>سکن تذکره تضمین‌کننده (داخلی)</h4><IdentityScanReadOnly attachment={record.saleContract.guarantorScan}/><button type="button" className="btn secondary" onClick={()=>printHtml(contractPrintHtml(contractSnapshot(record,preferences,{number:'—',date:afghanKabulToday(),total:0,paid:0,balance:0}),null,calendarMode,preferences))}><Printer size={15}/> چاپ پیش‌نویس قرارداد</button></div>}
     {page==='customers'&&<div className="entity-details-section"><h3>بل‌های فروش مشتری ({number(customerBills.length)})</h3>
       {customerBills.length?<div className="table-wrap"><table><thead><tr><th>شماره بل</th><th>تاریخ</th><th>مجموع (AFN)</th><th>مانده</th></tr></thead><tbody>{customerBills.map(b=><tr key={b.id}><td>{b.number}</td><td>{b.date}</td><td>{money(b.total)}</td><td>{money(b.balance)}</td></tr>)}</tbody></table></div>:<p className="settings-muted-info">بلی ثبت نشده است.</p>}
     </div>}
@@ -2336,9 +2434,13 @@ function EntityDetails({record,config,page,data}) {
   </div>;
 }
 
-function formatCell(value, key) {
+function formatCell(value, key, calendarMode) {
   if (value === undefined || value === null || value === "") return "—";
   if (key === "tax") return `${number(value)}٪`;
+  if (key === 'date' || key === 'paidDate' || key === 'startDate' || key === 'endDate' || key === 'birthDate') {
+    if(calendarMode)return formatCalendarDate(value,calendarMode);
+    try {const settings=JSON.parse(localStorage.getItem(FRESH_STORAGE_KEYS.preferences)||'{}');return formatCalendarDate(value,settings.calendarMode);} catch{return String(value);}
+  }
   if (
     [
       "balance",
@@ -2416,7 +2518,7 @@ function DebtorsPage({ data, onPayment, onNavigate }) {
   </>;
 }
 function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
-  const rates={USD:form.usdRate,PKR:form.pkrRate};
+  const rates={USD:form.usdRate,PKR:form.pkrRate,AED:form.aedRate,EUR:form.eurRate};
   if (!invoice) return <p>بل مورد نظر پیدا نشد.</p>;
   let amount=0;let rate=0;
   try {rate=currencyRate(form.currency||'AFN',rates);amount=toAfn(form.amount||0,form.currency||'AFN',rates);} catch {rate=0;}
@@ -2441,14 +2543,13 @@ function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
       {form.currency!=='AFN' && <div className="invoice-fx-box">
         <strong>نرخ تبدیل هنگام {invoice.type==='purchase'?'پرداخت':'دریافت'}</strong>
         <div className="invoice-fx-fields">
-          {form.currency==='USD'?<label>۱ USD = چند AFN؟<input type="number" dir="ltr" min="0" step="any" value={form.usdRate??''} onChange={e=>setForm({...form,usdRate:e.target.value})}/></label>:
-          <label>۱ PKR = چند AFN؟<input type="number" dir="ltr" min="0" step="any" value={form.pkrRate??''} onChange={e=>setForm({...form,pkrRate:e.target.value})}/></label>}
+          <label>۱ {form.currency} = چند AFN؟<GroupedNumberInput  dir="ltr" min="0" step="any" value={form[rateFieldFor(form.currency)]??''} onChange={e=>setForm({...form,[rateFieldFor(form.currency)]:e.target.value})}/></label>
         </div>
       </div>}
       <label>مبلغ {invoice.type==='purchase'?'پرداخت‌شده':'دریافت‌شده'} ({form.currency||'AFN'})
-        <input type="number" min="0.01" step="any" inputMode="decimal" autoFocus required value={form.amount} onChange={(e)=>setForm({...form,amount:e.target.value})} placeholder="مبلغ دریافتی" />
+        <GroupedNumberInput  min="0.01" step="any" inputMode="decimal" autoFocus required value={form.amount} onChange={(e)=>setForm({...form,amount:e.target.value})} placeholder="مبلغ دریافتی" />
       </label>
-      <label>تاریخ {invoice.type==='purchase'?'پرداخت':'دریافت'} (هجری شمسی)
+      <label>تاریخ {invoice.type==='purchase'?'پرداخت':'دریافت'}
         <AfghanDatePicker required value={form.date} onChange={date=>setForm({...form,date})}/>
       </label>
     </div>
@@ -2467,7 +2568,50 @@ function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
     </div>
   </form>;
 }
-function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPayment, canCollectSale=false, canCollectPurchase=false }) {
+function InvoiceDetails({invoice, data, preferences, onClose}) {
+  const calendarMode=React.useContext(CalendarModeContext);
+  const currency=invoice.currency||'AFN';
+  const extras=invoice.extraExpenses||[];
+  const extraTotal=extras.reduce((sum,extra)=>sum+Number(extra.amount||0),0);
+  const goodsTotal=Number.isFinite(Number(invoice.lineSubtotal))?Number(invoice.lineSubtotal):
+    (invoice.items||[]).reduce((sum,item)=>sum+Number(item.quantity||0)*Number(item.price||0)-Number(item.discount||0),0);
+  const rowMoney=value=>money(Number(value||0));
+  const initialPayment=Math.max(0,Number(invoice.paid||0)-(invoice.payments||[]).reduce((sum,p)=>sum+Number(p.amount||0),0));
+  return <div className="invoice-detail" dir="rtl">
+    <div className="invoice-detail-meta">
+      <div><span>شماره بل</span><strong>#{number(invoice.number)}</strong></div>
+      <div><span>تاریخ</span><strong>{formatCalendarDate(invoice.date,calendarMode)}</strong></div>
+      <div><span>{invoice.type==='purchase'?'عرضه‌کننده':'مشتری'}</span><strong>{invoice.party||'ثبت نشده'}</strong></div>
+      <div><span>گدام</span><strong>{data.warehouses.find(w=>String(w.id)===String(invoice.warehouseId))?.name||'گدام عمومی'}</strong></div>
+      <div><span>واحد پول اصلی</span><strong>{currency} {currency!=='AFN'?`— ۱ ${currency} = ${number(invoice.exchangeRate||0)} AFN`:''}</strong></div>
+      <div><span>وضعیت</span><strong>{invoice.status||'ثبت‌شده'}</strong></div>
+    </div>
+    <h4>جزئیات اجناس</h4>
+    <div className="table-wrap"><table><thead><tr><th>نام جنس</th><th>تعداد</th><th>قیمت واحد (AFN)</th><th>تخفیف (AFN)</th><th>مجموع (AFN)</th></tr></thead><tbody>
+      {(invoice.items||[]).map((item,index)=><tr key={index}><td>{item.product||'—'}</td><td>{number(item.quantity)}</td><td>{rowMoney(item.price)}</td><td>{rowMoney(item.discount)}</td><td>{rowMoney(Number(item.quantity||0)*Number(item.price||0)-Number(item.discount||0))}</td></tr>)}
+    </tbody></table></div>
+    <div className="invoice-detail-breakdown">
+      <div className="invoice-detail-total"><span>مجموع قیمت اجناس</span><strong>{rowMoney(goodsTotal)}</strong></div>
+      <h4>مصارف اضافی — تفکیک هر مصرف</h4>
+      {extras.length?extras.map((extra,index)=><div key={extra.id||index} className="invoice-detail-cost"><span>{index+1}. {extra.description||'مصرف اضافی'} {currency!=='AFN'&&extra.sourceAmount!=null&&<small>({number(extra.sourceAmount)} {currency})</small>}</span><strong>{rowMoney(extra.amount)}</strong></div>):<p className="invoice-detail-muted">برای این بل مصارف اضافی ثبت نشده است.</p>}
+      <div className="invoice-detail-total"><span>مجموع مصارف اضافی</span><strong>{rowMoney(invoice.extraExpensesTotal??extraTotal)}</strong></div>
+      <div className="invoice-detail-grand"><span>مجموع نهایی بل (اجناس + مصارف)</span><strong>{rowMoney(invoice.total)}</strong></div>
+      {currency!=='AFN'&&<div className="invoice-detail-total"><span>مجموع در {currency}</span><strong>{number(invoice.foreignTotal??(Number(invoice.total||0)/Number(invoice.exchangeRate||1)))} {currency}</strong></div>}
+      <div className="invoice-detail-total"><span>مبلغ پرداخت‌شده</span><strong>{rowMoney(invoice.paid)}</strong></div>
+      <div className="invoice-detail-total"><span>مانده پرداخت‌نشده</span><strong>{rowMoney(invoice.balance)}</strong></div>
+    </div>
+    {(initialPayment>0||(invoice.payments||[]).length>0)&&<><h4>سوابق پرداخت‌ها</h4>
+      {initialPayment>0&&<div className="invoice-detail-cost"><span>پرداخت هنگام ثبت بل — {formatCalendarDate(invoice.date,calendarMode)}</span><strong>{rowMoney(initialPayment)}</strong></div>}
+      {(invoice.payments||[]).map((payment,index)=><div className="invoice-detail-cost" key={payment.id||index}><span>{formatCalendarDate(payment.date,calendarMode)} {payment.notes?`— ${payment.notes}`:''} {payment.currency&&payment.currency!=='AFN'&&payment.sourceAmount!=null?`(${number(payment.sourceAmount)} ${payment.currency})`:''}</span><strong>{rowMoney(payment.amount)}</strong></div>)}
+    </>}
+    {invoice.notes&&<p className="invoice-detail-muted">ملاحظات: {invoice.notes}</p>}
+    {invoice.saleContract&&<section className="contract-payment-summary"><strong>شرایط قرارداد هنگام فروش</strong><span>پیش‌پرداخت {number(invoice.saleContract.percent)}٪ — حداقل {money(invoice.saleContract.minimum)}</span><span>تاریخ نهایی پرداخت: {formatCalendarDate(invoice.saleContract.due,calendarMode)}</span></section>}
+    <div className="modal-actions"><button type="button" className="btn secondary" onClick={onClose}>بستن جزئیات</button>{invoice.saleContract&&<button type="button" className="btn secondary" onClick={()=>printHtml(contractPrintHtml(invoice.saleContract,invoice,calendarMode,preferences))}><FileText size={15}/> چاپ قرارداد</button>}<button type="button" className="btn primary" onClick={()=>printHtml(invoicePrintHtml(invoice,data,preferences,calendarMode))}><Printer size={15}/> چاپ بل کامل</button></div>
+  </div>;
+}
+function InvoicesPage({ page, data, preferences, search, setSearch, onAdd, onDelete, onPayment, canCollectSale=false, canCollectPurchase=false }) {
+  const calendarMode=React.useContext(CalendarModeContext);
+  const [selectedInvoiceId,setSelectedInvoiceId]=useState(null);
   const type =
     page === "sales" ? "sale" : page === "purchases" ? "purchase" : "return";
   const title =
@@ -2539,7 +2683,7 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
         <span className="muted-pill">{number(rows.length)} ریکارد</span>
       </div>
       <Panel title={`فهرست ${title}`}>
-        <div className="table-wrap mobile-card-table">
+        <div className="table-wrap mobile-card-table invoice-list-table">
           <table>
             <thead>
               <tr>
@@ -2556,8 +2700,8 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <td data-label="شماره بل">#{number(row.number)}</td>
-                  <td data-label="تاریخ">{row.date}</td>
+                  <td data-label="شماره بل"><button type="button" className="table-detail-link" onClick={()=>setSelectedInvoiceId(row.id)}>#{number(row.number)} — جزئیات</button></td>
+                  <td data-label="تاریخ">{formatCalendarDate(row.date,calendarMode)}</td>
                   <td data-label={type === "purchase" ? "عرضه‌کننده" : "مشتری"}>{row.party || "—"}</td>
                   <td data-label="تعداد اقلام">{number(row.items?.length || 0)}</td>
                   <td data-label="مبلغ (افغانی)">{number(row.total)}{Number(row.extraExpensesTotal||0)>0&&<small className="invoice-expense-tag">شامل مصارف: {number(row.extraExpensesTotal)} افغانی</small>}</td>
@@ -2569,6 +2713,7 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
                   </td>
                   <td data-label="عملیات" className="table-action-cell">
                     <div className="row-actions">
+                      <button type="button" className="icon-btn small" title="دیدن جزئیات کامل بل" aria-label="دیدن جزئیات کامل بل" onClick={()=>setSelectedInvoiceId(row.id)}><Eye size={15}/></button>
                       {onPayment && ((type==='sale' && canCollectSale) || (type==='purchase' && canCollectPurchase)) && Number(row.balance || 0) > 0 && (
                         <button className="btn primary pay-action" onClick={() => onPayment(row)}>
                           <Wallet size={15} /> {type==='purchase'?'ثبت پرداخت عرضه‌کننده':'ثبت دریافت پول'}
@@ -2576,8 +2721,8 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
                       )}
                       <button
                         className="icon-btn small"
-                        onClick={() => window.print()}
-                        title="چاپ"
+                        onClick={() => printHtml(invoicePrintHtml(row,data,preferences,calendarMode))}
+                        title="چاپ این بل"
                       >
                         <Printer size={14} />
                       </button>
@@ -2603,6 +2748,9 @@ function InvoicesPage({ page, data, search, setSearch, onAdd, onDelete, onPaymen
           </table>
         </div>
       </Panel>
+      {selectedInvoiceId!=null&&data.invoices.some(x=>String(x.id)===String(selectedInvoiceId))&&<Modal title={`جزئیات بل #${number(data.invoices.find(x=>String(x.id)===String(selectedInvoiceId)).number)}`} onClose={()=>setSelectedInvoiceId(null)}>
+        <InvoiceDetails invoice={data.invoices.find(x=>String(x.id)===String(selectedInvoiceId))} data={data} preferences={preferences} onClose={()=>setSelectedInvoiceId(null)}/>
+      </Modal>}
     </>
   );
 }
@@ -2677,7 +2825,7 @@ function CashRegisterPage({state,onSave,onDelete}){
       <p className="settings-muted-info">فروش، دریافت قرض، خرید، معاش و مصارف ثبت‌شده خودکار محاسبه می‌شوند. برای تکراری نشدن، آن‌ها را دوباره این‌جا ثبت نکنید.</p>
       <form className="form-grid" onSubmit={submit}>
         <label>نوع حرکت<select value={draft.kind} onChange={e=>setDraft({...draft,kind:e.target.value})}><option value="in">پول گذاشتن مالک در صندوق (+)</option><option value="out">برداشت پول توسط مالک (−)</option></select></label>
-        <label>مبلغ (AFN)<input type="number" min="0.01" step="0.01" inputMode="decimal" required value={draft.amount} onChange={e=>setDraft({...draft,amount:e.target.value})}/></label>
+        <label>مبلغ (AFN)<GroupedNumberInput  min="0.01" step="0.01" inputMode="decimal" required value={draft.amount} onChange={e=>setDraft({...draft,amount:e.target.value})}/></label>
         <label>تاریخ<AfghanDatePicker required value={draft.date} onChange={date=>setDraft({...draft,date})}/></label>
         <label className="wide">توضیح / دلیل<input required maxLength={220} placeholder="مثلاً پول شخصی مالک برای خریداری" value={draft.description} onChange={e=>setDraft({...draft,description:e.target.value})}/></label>
         <div><button type="submit" className="btn primary"><Save size={16}/> ثبت حرکت صندوق</button></div>
@@ -2757,8 +2905,8 @@ function ExpensesPage({ data, setData, notify, canManage=true, cashAvailable=0 }
           </label>
           <label>
             مبلغ (افغانی)
-            <input
-              type="number"
+            <GroupedNumberInput
+              
               min="0"
               value={form.amount}
               onChange={(e) => setForm({ ...form, amount: e.target.value })}
@@ -2766,7 +2914,7 @@ function ExpensesPage({ data, setData, notify, canManage=true, cashAvailable=0 }
             />
           </label>
           <label>
-            تاریخ (هجری شمسی افغانستان)
+            تاریخ
             <AfghanDatePicker value={form.date} onChange={date=>setForm({...form,date})} required/>
           </label>
           <label className="wide">
@@ -2847,27 +2995,45 @@ function PayrollPage({ data, onNavigate, onAdd, onPaid, onDelete }) {
     <p className="info-note">این نسخه صرف برای نمایش معاشات است. محاسبه کسورات مطابق قوانین افغانستان به‌صورت خودکار فعال نیست.</p>
   </>;
 }
-function AttendancePage({data,onMark}) {
-  const current=afghanCalendarParts();
+function AttendancePage({data,onMark,onMarkAll}) {
+  const attendanceToday=afghanKabulToday();
+  const [cy,cm,cd]=attendanceToday.split("/").map(Number);
+  const current={year:cy,month:cm,day:cd};
   const [year,setYear]=useState(current.year);
   const [month,setMonth]=useState(current.month);
   const [day,setDay]=useState(current.day);
   const [unit,setUnit]=useState('all');
   const [notes,setNotes]=useState({});
+  const [editCell,setEditCell]=useState(null);
   const days=attendanceDays(year,month);
   const selectedDay=Math.max(1,Math.min(day,days));
   const date=attendanceKey(year,month,selectedDay);
   const units=[...new Set(data.employees.map(e=>e.unit).filter(Boolean))];
-  const employees=data.employees.filter(e=>unit==='all'||e.unit===unit);
-  const attendanceByKey=new Map((data.attendance||[]).map(x=>[`${x.employeeId}|${x.date}`,x]));
-  const mark=(employee,status)=>onMark?.(employee.id,date,status,notes[String(employee.id)]??attendanceByKey.get(`${employee.id}|${date}`)?.notes??'');
-  const overview=attendanceOverview(data.attendance,employees,year,month);
+  const employees=useMemo(()=>data.employees.filter(e=>unit==='all'||e.unit===unit),[data.employees,unit]);
+  const attendanceByKey=useMemo(()=>new Map((data.attendance||[]).map(x=>[`${x.employeeId}|${x.date}`,x])),[data.attendance]);
+  const mark=(employee,status)=>onMark?.(employee.id,date,status,notes[`${employee.id}|${date}`]??attendanceByKey.get(`${employee.id}|${date}`)?.notes??'');
+  const overview=useMemo(()=>attendanceOverview(data.attendance,employees,year,month,attendanceToday),[data.attendance,employees,year,month,attendanceToday]);
+  const monthlyByKey=useMemo(()=>new Map(overview.rows.map(x=>[`${x.employeeId}|${x.date}`,x])),[overview]);
+  const openAttendanceCell=React.useCallback((employee,cellDate)=>{const original=attendanceByKey.get(`${employee.id}|${cellDate}`);const result=monthlyByKey.get(`${employee.id}|${cellDate}`);setEditCell({employee,date:cellDate,status:original?.status||result?.status||'',notes:original?.notes||''});},[attendanceByKey,monthlyByKey]);
   const totals=overview.totals;
   const options=[...ATTENDANCE_OPTIONS];
+  const editable=!!onMark;
+  const monthlyGrid=useMemo(()=>(<Panel title="نمای ماهانه حاضری">
+      <div className="attendance-legend"><span className="present">حاضر</span><span className="late">تأخیر</span><span className="absent">غایب</span><span className="off">رخصتی / جمعه</span></div>
+      <div className="table-scroll-hint" aria-hidden="true">برای دیدن روزهای دیگر، جدول را به چپ یا راست بکشید. علامت‌های کم‌رنگ به معنی پیش‌فرض اند.</div>
+      <div className="table-wrap wide-data-table attendance-grid" tabIndex="0"><table><thead><tr><th>کارمند</th>{Array.from({length:days},(_,i)=><th key={i}>{number(i+1)}</th>)}</tr></thead><tbody>
+        {employees.map(e=><tr key={e.id}><td>{e.firstName} {e.lastName}</td>{Array.from({length:days},(_,i)=>{
+          const dateAtDay=attendanceKey(year,month,i+1);
+          const result=monthlyByKey.get(`${e.id}|${dateAtDay}`)||{status:"",automatic:false};
+          return <td key={i}><button type="button" className={`attendance-cell ${result.status||'unmarked'} ${result.automatic?'attendance-auto':''}`} title={`${e.firstName} — روز ${i+1}: ${ATTENDANCE_OPTIONS.find(x=>x.value===result.status)?.label||'ثبت نشده'}${result.automatic?' (خودکار)':''}`} onClick={()=>editable?openAttendanceCell(e,dateAtDay):setDay(i+1)} aria-label={`${e.firstName} — ${dateAtDay} — ${ATTENDANCE_OPTIONS.find(x=>x.value===result.status)?.label||"ثبت نشده"}`}>{result.status==='present'?'✓':result.status==='late'?'◷':result.status==='absent'?'×':result.status==='off'?'–':'·'}</button></td>;
+        })}</tr>)}
+        {!employees.length&&<tr><td colSpan={days+1}>کارمندی پیدا نشد.</td></tr>}
+      </tbody></table></div>
+    </Panel>),[employees,days,year,month,monthlyByKey,editable,openAttendanceCell]);
   return <>
     <PageHeading title="حاضری کارمندان" description="روزهای کاری به‌صورت پیش‌فرض حاضر و روز جمعه رخصتی عمومی نشان داده می‌شوند. مسئول حاضری باید غیابت و تأخیر را بررسی و اصلاح کند." actions={<>
       <button className="btn secondary" type="button" onClick={()=>downloadCsv('حاضری', [['date','تاریخ'],['employeeName','کارمند'],['statusLabel','وضعیت'],['sourceLabel','منبع ثبت'],['notes','توضیحات']], overview.rows.map(x=>({...x,statusLabel:ATTENDANCE_OPTIONS.find(v=>v.value===x.status)?.label||'',sourceLabel:x.automatic?'پیش‌فرض خودکار':'ثبت مسئول'})))}><Download size={16}/> CSV حاضری ماهانه</button>
-      {onMark&&employees.length>0&&<button className="btn secondary" type="button" onClick={()=>{if(window.confirm(`حاضری روز ${date} برای همه کارمندان حاضر ثبت شود؟`))employees.forEach(e=>mark(e,'present'))}}><ClipboardCheck size={16}/> تأیید حاضری همه — روز انتخاب‌شده</button>}
+      {onMarkAll&&employees.some(e=>monthlyByKey.get(`${e.id}|${date}`)?.status==='present'&&monthlyByKey.get(`${e.id}|${date}`)?.automatic)&&<button className="btn secondary" type="button" onClick={()=>{if(window.confirm(`حاضری پیش‌فرض روز ${date} تأیید شود؟ غیابت‌های ثبت‌شده تغییر نمی‌کنند.`))onMarkAll(employees.map(e=>e.id),date)}}><ClipboardCheck size={16}/> تأیید حاضرهای پیش‌فرض</button>}
     </>}/>
     <div className="filter-row attendance-controls"><label>سال هجری شمسی<select value={year} onChange={e=>setYear(Number(e.target.value))}>{[current.year-2,current.year-1,current.year,current.year+1].map(y=><option key={y} value={y}>{number(y)}</option>)}</select></label><label>ماه<select value={month} onChange={e=>{setMonth(Number(e.target.value));setDay(1)}}>{afghanMonths.map((m,i)=><option key={m} value={i+1}>{m}</option>)}</select></label><label>روز<select value={selectedDay} onChange={e=>setDay(Number(e.target.value))}>{Array.from({length:days},(_,i)=><option key={i} value={i+1}>{number(i+1)}</option>)}</select></label><label>واحد<select value={unit} onChange={e=>setUnit(e.target.value)}><option value="all">همه واحدها</option>{units.map(u=><option key={u} value={u}>{u}</option>)}</select></label></div>
     <div className="stats-grid four"><StatCard label="حاضر (شامل پیش‌فرض)" value={number(totals.present)} icon={BadgeCheck} tone="green"/><StatCard label="تأخیر" value={number(totals.late)} icon={Clock3} tone="amber"/><StatCard label="غایب" value={number(totals.absent)} icon={Users} tone="rose"/><StatCard label="رخصتی / جمعه" value={number(totals.off)} icon={CalendarDays} tone="blue"/></div>
@@ -2875,38 +3041,75 @@ function AttendancePage({data,onMark}) {
       {employees.length?<div className="attendance-entry-list">
         {employees.map(e=>{
           const recorded=attendanceByKey.get(`${e.id}|${date}`);
-          const result=resolvedAttendance(recorded,date,undefined,e);
+          const result=monthlyByKey.get(`${e.id}|${date}`)||{status:"",automatic:false};
           const isFriday=!recorded&&result.status==='off';
           return <div key={e.id} className="attendance-entry-row">
             <div className="attendance-employee"><strong>{e.firstName} {e.lastName}</strong><small>{e.position||'کارمند'} {e.unit?`— ${e.unit}`:''}</small><small className="attendance-assumption">{result.automatic?(isFriday?'جمعه — رخصتی عمومی':'پیش‌فرض خودکار؛ غیابت را مسئول اصلاح کند'):(recorded?'ثبت شده توسط مسئول':'هنوز روز کاری فرا نرسیده است')}</small></div>
             <select aria-label={`حاضری ${e.firstName}`} disabled={!onMark} value={recorded?.status||result.status||''} onChange={event=>mark(e,event.target.value)}>
               <option value="">ثبت نشده</option>{options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
-            {onMark&&<input className="attendance-note" type="text" aria-label={`یادداشت حاضری ${e.firstName}`} placeholder="توضیح (اختیاری)" value={notes[String(e.id)]??recorded?.notes??''} onChange={event=>setNotes(p=>({...p,[String(e.id)]:event.target.value}))} onBlur={()=>{if(recorded?.status&&notes[String(e.id)]!==undefined)onMark(e.id,date,recorded.status,notes[String(e.id)]);}}/>}
+            {onMark&&<input className="attendance-note" type="text" aria-label={`یادداشت حاضری ${e.firstName}`} placeholder="توضیح (اختیاری)" value={notes[`${e.id}|${date}`]??recorded?.notes??''} onChange={event=>setNotes(p=>({...p,[`${e.id}|${date}`]:event.target.value}))} onBlur={()=>{const key=`${e.id}|${date}`;if(result.status&&notes[key]!==undefined&&notes[key]!==recorded?.notes)onMark(e.id,date,result.status,notes[key]);}}/>}
           </div>;
         })}
       </div>:<EmptyState text="ابتدا کارمند ثبت کنید یا فلتر واحد را تغییر دهید."/>}
       {!onMark&&<p className="settings-muted-info">فقط مسئول مجاز می‌تواند وضعیت حاضری کارمندان را تغییر دهد.</p>}
     </Panel>
-    <Panel title="نمای ماهانه حاضری">
-      <div className="attendance-legend"><span className="present">حاضر</span><span className="late">تأخیر</span><span className="absent">غایب</span><span className="off">رخصتی / جمعه</span></div>
-      <div className="table-scroll-hint" aria-hidden="true">برای دیدن روزهای دیگر، جدول را به چپ یا راست بکشید. علامت‌های کم‌رنگ به معنی پیش‌فرض اند.</div>
-      <div className="table-wrap wide-data-table attendance-grid" tabIndex="0"><table><thead><tr><th>کارمند</th>{Array.from({length:days},(_,i)=><th key={i}>{number(i+1)}</th>)}</tr></thead><tbody>
-        {employees.map(e=><tr key={e.id}><td>{e.firstName} {e.lastName}</td>{Array.from({length:days},(_,i)=>{
-          const dateAtDay=attendanceKey(year,month,i+1);
-          const explicit=attendanceByKey.get(`${e.id}|${dateAtDay}`);
-          const result=resolvedAttendance(explicit,dateAtDay,undefined,e);
-          return <td key={i}><button type="button" className={`attendance-cell ${result.status||'unmarked'} ${result.automatic?'attendance-auto':''}`} title={`${e.firstName} — روز ${i+1}: ${ATTENDANCE_OPTIONS.find(x=>x.value===result.status)?.label||'ثبت نشده'}${result.automatic?' (خودکار)':''}`} onClick={()=>setDay(i+1)}>{result.status==='present'?'✓':result.status==='late'?'◷':result.status==='absent'?'×':result.status==='off'?'–':'·'}</button></td>;
-        })}</tr>)}
-        {!employees.length&&<tr><td colSpan={days+1}>کارمندی پیدا نشد.</td></tr>}
-      </tbody></table></div>
-    </Panel>
+    {monthlyGrid}
+    {editCell&&onMark&&<Modal title={`ثبت حاضری — ${editCell.employee.firstName||''} ${editCell.employee.lastName||''}`} onClose={()=>setEditCell(null)}><form className="attendance-cell-editor" onSubmit={event=>{event.preventDefault();if(onMark(editCell.employee.id,editCell.date,editCell.status,editCell.notes)!==false){setNotes(prev=>{const next={...prev};delete next[`${editCell.employee.id}|${editCell.date}`];return next;});setEditCell(null);}}}><p>{editCell.date}</p><div className="attendance-choice-grid">{ATTENDANCE_OPTIONS.map(option=><button key={option.value} type="button" className={`attendance-choice ${editCell.status===option.value?'selected':''}`} aria-pressed={editCell.status===option.value} onClick={()=>setEditCell(old=>({...old,status:option.value}))}>{option.label}</button>)}</div><label>توضیح (اختیاری)<textarea rows="2" maxLength="220" value={editCell.notes} onChange={event=>setEditCell(old=>({...old,notes:event.target.value}))}/></label><div className="modal-actions"><button type="button" className="btn secondary" onClick={()=>setEditCell(null)}>لغو</button><button type="button" className="btn secondary" onClick={()=>{if(onMark(editCell.employee.id,editCell.date,'','')!==false)setEditCell(null);}}>بازگشت به پیش‌فرض</button><button className="btn primary" disabled={!editCell.status}><Save size={15}/> ثبت حاضری</button></div></form></Modal>}
   </>;
 }
 
-function ReportsPage({ page, data }) {
+// Plain-language report summaries for shopkeepers; detailed accounting remains in the table below.
+function SimpleReportGuide({page,business,journals,balances,ledgerLines,rows}) {
+  const general=page==='reports';
+  const everyday=everydayReportSummary(business);
+  const accounting=accountingReportSummary({page,journals,balances,ledgerLines});
+  const help={
+    reports:'در این بخش می‌بینید چه اندازه فروش شده، چقدر پول دریافت شده و چه اندازه نزد مشتریان باقی مانده است.',
+    trialBalance:'این گزارش نشان می‌دهد جمع دو طرف ثبت‌های حسابداری برابر است یا نه. برای بررسی درست‌بودن ثبت‌ها استفاده می‌شود.',
+    journalReport:'معاملات ثبت‌شده را به ترتیب روز ببینید؛ برای پیدا کردن یک معامله از تاریخ استفاده کنید.',
+    ledgerReport:'ثبت‌های مربوط به هر سرفصل حساب را در یک جا ببینید؛ از فلتر «سرفصل حساب» استفاده کنید.',
+    documentReport:'شماره، تاریخ و مبلغ اسناد حسابداری را در یک فهرست ببینید.'
+  };
+  const amounts=general ? [
+    {label:'فروشات ثبت‌شده',value:everyday.sales,description:'مجموع بل‌های فروش، نقد و قرضه'},
+    {label:'پول دریافت‌شده از فروش',value:everyday.received,description:'مبلغی که بابت بل‌های فروش پرداخت شده'},
+    {label:'پول باقی‌مانده نزد مشتریان',value:everyday.receivable,description:'باقی بل‌های فروش که باید وصول شود'},
+    {label:'خریداری‌های ثبت‌شده',value:everyday.purchases,description:'مجموع بل‌های خرید، نه فقط پول پرداختی'},
+    {label:'مصارف و معاشات',value:everyday.runningCosts,description:'مصارف ثبت‌شده و معاشات پرداخت‌شده'}
+  ] : [
+    {label:page==='ledgerReport'?'تعداد سطرهای همین حساب':'تعداد اسناد',value:page==='ledgerReport'?accounting.lineCount:accounting.documentCount,count:true,description:page==='ledgerReport'?'مطابق سرفصل انتخاب‌شده':'در تاریخ و محدودهٔ انتخاب‌شده'},
+    {label:'مجموع دیبیت',value:accounting.debit,description:'یک جانب ثبت حسابداری؛ لزوماً پول پرداختی نیست'},
+    {label:'مجموع کریدیت',value:accounting.credit,description:'جانب دیگر ثبت حسابداری؛ لزوماً پول دریافتی نیست'}
+  ];
+  return <section className="report-simple" aria-label="خلاصه ساده گزارش">
+    <div className="report-simple-heading">
+      <h3>گزارش در یک نگاه</h3>
+      <p>{help[page]||help.reports}</p>
+    </div>
+    <div className="report-simple-grid">
+      {amounts.map(item=><div className="report-simple-tile" key={item.label}>
+        <span>{item.label}</span>
+        <strong dir="ltr">{item.count?number(item.value):money(item.value)}</strong>
+        <small>{item.description}</small>
+      </div>)}
+    </div>
+    {general ? <div className="report-simple-note">
+      <div className="report-simple-note-header"><strong>از پول بل‌های فروش چقدر دریافت شده؟</strong><span>{everyday.paidPercent}٪ پرداخت شده</span></div>
+      <div className="report-simple-track" role="progressbar" aria-label="فیصدی پول پرداخت‌شده بل‌های فروش" aria-valuemin={0} aria-valuemax={100} aria-valuenow={everyday.paidPercent}><div style={{width:`${everyday.paidPercent}%`}}/></div>
+      <p>{everyday.paymentBase>0 ? `دریافت‌شده: ${money(everyday.received)} • باقی نزد مشتریان: ${money(everyday.receivable)}` : 'هنوز بل فروش ثبت نشده است.'}</p>
+      <p>توجه: فروش قرضه به معنی دریافت پول نقد نیست. فلتر این گزارش بر اساس تاریخ بل است، نه تاریخ دریافت پول. خریداری نیز به‌تنهایی مفاد خالص را نشان نمی‌دهد.</p>
+    </div> : <div className="report-simple-note">
+      {page==='trialBalance' ? <p>{accounting.documentCount===0?'هنوز سندی در این محدوده موجود نیست.':accounting.balanced?'جمع دیبیت و کریدیت برابر است؛ اما این به‌تنهایی درستی همه معاملات را ثابت نمی‌کند.':`فرق دو طرف ${money(accounting.difference)} است؛ اسناد را بررسی کنید.`}</p> : <p>{rows.length?`${number(rows.length)} ریکارد در جدول پایین دیده می‌شود.`:'برای این فلتر هنوز ریکاردی پیدا نشد.'}</p>}
+      <p><strong>راهنمای ساده:</strong> دیبیت و کریدیت دو طرف یک ثبت حسابداری اند؛ آن‌ها را با «پول داخل صندوق» و «پول خارج صندوق» اشتباه نگیرید.</p>
+    </div>}
+  </section>;
+}
+
+function ReportsPage({ page, data, openingCash=0 }) {
   const titles = {trialBalance:'تراز آزمایشی',journalReport:'گزارش روزنامه',ledgerReport:'گزارش کل',documentReport:'گزارش اسناد',reports:'گزارش عمومی'};
   const title = titles[page] || 'گزارش عمومی';
+  const calendarMode=React.useContext(CalendarModeContext);
   const [filter, setFilter] = useState({from:'',to:'',min:'',max:''});
   const [applied, setApplied] = useState({from:'',to:'',min:'',max:''});
   const [error, setError] = useState('');
@@ -2914,18 +3117,16 @@ function ReportsPage({ page, data }) {
   const saveFilter = (e) => {
     e.preventDefault();
     if ((filter.from && !afghanDateOrder(filter.from)) || (filter.to && !afghanDateOrder(filter.to))) {
-      setError('تاریخ را مانند 1405/08/21 یا ۲۱ عقرب ۱۴۰۵ وارد کنید.'); return;
+      setError(calendarMode==='gregorian'?'تاریخ میلادی انتخاب‌شده معتبر نیست.':'تاریخ را مانند 1405/08/21 یا ۲۱ عقرب ۱۴۰۵ وارد کنید.'); return;
     }
     if (filter.from && filter.to && afghanDateOrder(filter.from) > afghanDateOrder(filter.to)) {
       setError('تاریخ شروع بعد از تاریخ پایان است.'); return;
     }
     setError(''); setApplied({...filter});
   };
-  const journals = data.journals.filter(j => isInAfghanRange(j.date, applied.from, applied.to) &&
+  const journals = buildAccountingJournal(data,openingCash).filter(j => isInAfghanRange(j.date, applied.from, applied.to) &&
     (!applied.min || Number(j.number) >= Number(applied.min)) && (!applied.max || Number(j.number) <= Number(applied.max)));
   const balances = journalBalances(journals).map(x => ({...x, debitBalance: Math.max(0,cash(x.debit-x.credit)), creditBalance: Math.max(0,cash(x.credit-x.debit))}));
-  const totalDebit = balances.reduce((s,x)=>s+x.debit,0);
-  const totalCredit = balances.reduce((s,x)=>s+x.credit,0);
   const journalLines = journals.flatMap(j => (j.rows||[]).map((line, i)=>({
     id:`${j.id}-${i}`, number:j.number, date:j.date, name:j.name, account:line.account,
     description:line.description, debit:Number(line.debit||0), credit:Number(line.credit||0)
@@ -2940,9 +3141,9 @@ function ReportsPage({ page, data }) {
     ...business.payrollRows.map(x=>({id:`pay-${x.id}`,date:x.paidDate||x.date,kind:'معاش پرداخت‌شده',name:x.employeeName,amount:payrollAmounts(x).net,paid:payrollAmounts(x).net,balance:0}))
   ].sort((a,b)=>afghanDateOrder(b.date)-afghanDateOrder(a.date));
   const columns = page==='reports' ? [['date','تاریخ'],['kind','نوع'],['name','شرح'],['amount','مبلغ (افغانی)'],['paid','پرداخت'],['balance','مانده']]
-    : page==='trialBalance' ? [['account','سرفصل حساب'],['debit','گردش بدهکار'],['credit','گردش بستانکار'],['debitBalance','مانده بدهکار'],['creditBalance','مانده بستانکار']]
-    : page==='documentReport' ? [['number','شماره سند'],['date','تاریخ'],['name','نام سند'],['debit','بدهکار'],['credit','بستانکار']]
-    : [['number','شماره سند'],['date','تاریخ'],['name','نام سند'],['account','سرفصل'],['description','شرح'],['debit','بدهکار'],['credit','بستانکار']];
+    : page==='trialBalance' ? [['account','سرفصل حساب'],['debit','گردش دیبیت'],['credit','گردش کریدیت'],['debitBalance','مانده دیبیت'],['creditBalance','مانده کریدیت']]
+    : page==='documentReport' ? [['number','شماره سند'],['date','تاریخ'],['name','نام سند'],['debit','دیبیت'],['credit','کریدیت']]
+    : [['number','شماره سند'],['date','تاریخ'],['name','نام سند'],['account','سرفصل'],['description','شرح'],['debit','دیبیت'],['credit','کریدیت']];
   const rows = page==='reports' ? businessRows : page==='trialBalance' ? balances : page==='ledgerReport' ? ledgerLines : page==='documentReport' ? documentRows : journalLines;
   return <>
     <PageHeading title={title} description="گزارش‌های قابل جستجو از معلومات ثبت‌شده در همین مرورگر"
@@ -2950,33 +3151,22 @@ function ReportsPage({ page, data }) {
       <button className="btn secondary" onClick={()=>window.print()}><Printer size={15}/> چاپ گزارش</button></>}/>
     <Panel title="فلتر گزارش">
       <form className="report-filter" onSubmit={saveFilter}>
-        <label>تاریخ شروع (هجری شمسی)<AfghanDatePicker value={filter.from} onChange={date=>setFilter({...filter,from:date})}/></label>
-        <label>تاریخ پایان (هجری شمسی)<AfghanDatePicker value={filter.to} onChange={date=>setFilter({...filter,to:date})}/></label>
+        <label>تاریخ شروع ({calendarMode==='gregorian'?'میلادی':'شمسی'})<AfghanDatePicker value={filter.from} onChange={date=>setFilter({...filter,from:date})}/></label>
+        <label>تاریخ پایان ({calendarMode==='gregorian'?'میلادی':'شمسی'})<AfghanDatePicker value={filter.to} onChange={date=>setFilter({...filter,to:date})}/></label>
         {page==='ledgerReport' && <label>سرفصل حساب<select value={accountFilter} onChange={e=>setAccountFilter(e.target.value)}><option value="all">همه سرفصل‌ها</option>{ledgerAccounts.map(name=><option key={name}>{name}</option>)}</select></label>}
         {page!=='reports' && <><label>شماره شروع سند<input type="number" min="1" value={filter.min} onChange={e=>setFilter({...filter,min:e.target.value})} placeholder="از شماره"/></label>
           <label>شماره پایان سند<input type="number" min="1" value={filter.max} onChange={e=>setFilter({...filter,max:e.target.value})} placeholder="تا شماره"/></label></>}
         <button className="btn primary" type="submit"><Search size={15}/> نمایش گزارش</button>
-        <button className="btn secondary" type="button" onClick={()=>{setFilter({from:'',to:'',min:'',max:''});setApplied({from:'',to:'',min:'',max:''});setError('')}}>پاک کردن فلتر</button>
+        <button className="btn secondary" type="button" onClick={()=>{setFilter({from:'',to:'',min:'',max:''});setApplied({from:'',to:'',min:'',max:''});setError('');setAccountFilter('all')}}>پاک کردن فلتر</button>
       </form>
       {error && <p className="form-error" role="alert">{error}</p>}
     </Panel>
-    {page==='reports' ? <div className="stats-grid six">
-      <StatCard label="مجموع فروش" value={money(business.sales)} icon={TrendingUp} tone="green"/>
-      <StatCard label="مجموع خرید" value={money(business.purchases)} icon={ShoppingCart} tone="blue"/>
-      <StatCard label="برگشتی‌ها" value={money(business.returns)} icon={Undo2} tone="violet"/>
-      <StatCard label="طلبات فروش" value={money(business.receivable)} icon={Clock3} tone="amber"/>
-      <StatCard label="مصارف ثبت‌شده" value={money(business.expenses)} icon={TrendingDown} tone="rose"/>
-      <StatCard label="معاشات پرداخت‌شده" value={money(business.paidPayroll)} icon={Wallet} tone="cyan"/>
-    </div> : <div className="report-summary">
-      <div><span>مجموع بدهکار</span><strong>{money(totalDebit)}</strong></div>
-      <div><span>مجموع بستانکار</span><strong>{money(totalCredit)}</strong></div>
-      <div><span>تعداد اسناد</span><strong>{number(journals.length)}</strong></div>
-    </div>}
+    <SimpleReportGuide page={page} business={business} journals={journals} balances={balances} ledgerLines={ledgerLines} rows={rows}/>
     <Panel title={title} action={<span className="muted-pill">{number(rows.length)} ریکارد</span>}>
       <DataTable columns={columns} rows={rows} empty="در محدودهٔ انتخاب‌شده معلوماتی موجود نیست."/>
     </Panel>
     <p className="info-note">{page==='reports' ? 'این گزارش جمع‌بندی سادهٔ بل‌ها، مصارف و معاشات پرداخت‌شده است و محاسبهٔ مفاد خالص یا صورت مالی حسابرسی‌شده نیست.' :
-      'گزارش‌های حسابداری فعلاً فقط اسناد دستی ثبت‌شده در «اسناد حسابداری» را نمایش می‌دهند؛ بل‌ها هنوز به دفتر کل خودکار متصل نیستند.'}</p>
+      'این گزارش از بل‌ها، دریافت‌ها، پرداخت‌ها، معاشات، مصارف، محموله‌ها، حرکات صندوق و اسناد دستی ساخته می‌شود؛ قیمت موجودی و مفاد تخمینی است و برای حسابرسی رسمی نیاز به تأیید دارد.'}</p>
   </>;
 }
 function AccessDenied({onBack}) {
@@ -3171,6 +3361,7 @@ function QuickSearchBox({search,onSearch,results,onSelect,open,setOpen,mobile=fa
   </div>;
 }
 function AfghanHeaderCalendar({data,todayLabel,canView,onNavigate,onClose}) {
+  const calendarMode=React.useContext(CalendarModeContext);
   const parts=dateChoiceParts(today)||{year:1405,month:1,day:1};
   const [display,setDisplay]=useState({year:parts.year,month:parts.month});
   const [selected,setSelected]=useState(buildAfghanDate(parts));
@@ -3181,6 +3372,14 @@ function AfghanHeaderCalendar({data,todayLabel,canView,onNavigate,onClose}) {
   const days=Array.from({length:31},(_,i)=>i+1).filter(day=>afghanDateDayNumber(buildAfghanDate({...display,day}))!==null);
   const transactions=transactionsForDay(data,selected).filter(item=>canView(item.page));
   const dateParts=dateChoiceParts(selected);
+  if(calendarMode==='gregorian')return <div className="header-calendar-popover" role="dialog" aria-label="تقویم میلادی">
+    <div className="calendar-popover-title"><strong>تقویم میلادی</strong><button className="calendar-close" type="button" onClick={onClose} aria-label="بستن تقویم"><X size={17}/></button></div>
+    <input className="gregorian-date-picker" type="date" value={gregorianFromAfghan(selected)} onChange={e=>setSelected(afghanFromGregorian(e.target.value))} aria-label="انتخاب تاریخ میلادی"/>
+    <button type="button" className="calendar-today" onClick={()=>setSelected(buildAfghanDate(parts))}>امروز: {formatCalendarDate(today,'gregorian')}</button>
+    <div className="calendar-transactions"><strong>فعالیت‌های {formatCalendarDate(selected,'gregorian')}</strong>
+      {transactions.length?transactions.slice(0,8).map((x,i)=><button key={i} type="button" onClick={()=>{onNavigate(x.page,x.label);onClose();}}><span>{x.label}</span><small>{x.kind} {x.amount?money(x.amount):''}</small></button>):<p>برای این تاریخ معامله‌ای ثبت نشده است.</p>}
+    </div>
+  </div>;
   return <div className="header-calendar-popover" role="dialog" aria-label="تقویم و فعالیت‌ها">
     <div className="calendar-popover-title"><strong>تقویم افغانستان</strong><button type="button" className="calendar-close" aria-label="بستن تقویم" onClick={onClose}><X size={17}/></button></div>
     <div className="calendar-navigation">
@@ -3197,7 +3396,7 @@ function AfghanHeaderCalendar({data,todayLabel,canView,onNavigate,onClose}) {
   </div>;
 }
 
-function BusinessLogoPicker({logo,shopName,onChange,disabled=false,onBusyChange,inputId}) {
+function BusinessLogoPicker({logo,shopName,onChange,disabled=false,onBusyChange,inputId,label="لوگو یا عکس عمده‌فروشی (اختیاری)",help="عکس JPG، PNG یا WebP؛ حداکثر ۵ MB. عکس برای منو کوچک و فشرده می‌شود.",printLogo=false}) {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const upload=async event=>{
@@ -3211,12 +3410,12 @@ function BusinessLogoPicker({logo,shopName,onChange,disabled=false,onBusyChange,
   };
   return <div className="business-logo-picker">
     <div className="business-logo-preview" aria-hidden="true">
-      {logo ? <img src={logo} alt="" /> : <span>{shopName.trim().charAt(0)||'ع'}</span>}
+      {logo ? <img src={logo} alt="" /> : printLogo ? <small>بدون عکس</small> : <span>{shopName.trim().charAt(0)||'ع'}</span>}
     </div>
     <div className="business-logo-picker-controls">
-      <label htmlFor={inputId}>لوگو یا عکس عمده‌فروشی (اختیاری)</label>
+      <label htmlFor={inputId}>{label}</label>
       <input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" disabled={busy||disabled} onChange={upload}/>
-      <small>{busy?'در حال آماده‌سازی عکس...':'عکس JPG، PNG یا WebP؛ حداکثر ۵ MB. عکس برای منو کوچک و فشرده می‌شود.'}</small>
+      <small>{busy?'در حال آماده‌سازی عکس...':help}</small>
       {logo && !disabled && <button className="btn secondary business-logo-remove" type="button" disabled={busy} onClick={()=>{setError('');onChange('');}}>حذف عکس</button>}
       {error && <p className="form-error" role="alert">{error}</p>}
     </div>
@@ -3265,7 +3464,7 @@ function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
       <form className="demo-login-form" onSubmit={submit}>
         <label>نام عمده‌فروشی<input autoFocus required maxLength={90} value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="مثلاً: عمده‌فروشی کابل"/></label>
         <BusinessLogoPicker inputId="new-business-logo" logo={shopLogo} shopName={businessName} onChange={setShopLogo} onBusyChange={setLogoBusy}/>
-        <label>پول آغازین صندوق نقدی (افغانی)<input type="number" min="0" step="0.01" inputMode="decimal" value={openingCash} onChange={e=>setOpeningCash(e.target.value)} required/><small>پول نقدی که در آغاز فعالیت داخل صندوق دارید؛ برای شروع از صفر، ۰ وارد کنید.</small></label>
+        <label>پول آغازین صندوق نقدی (افغانی)<GroupedNumberInput  min="0" step="0.01" inputMode="decimal" value={openingCash} onChange={e=>setOpeningCash(e.target.value)} required/><small>پول نقدی که در آغاز فعالیت داخل صندوق دارید؛ برای شروع از صفر، ۰ وارد کنید.</small></label>
         <ThemeSettingsControls value={setupAppearance} onChange={setSetupAppearance} compact/>
         <label>نام و تخلص مدیر<input required maxLength={80} value={adminName} onChange={e=>setAdminName(e.target.value)} placeholder="نام مدیر سیستم"/></label>
         <label>نام کاربری مدیر<input dir="ltr" required value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} autoComplete="username"/></label>
@@ -3432,7 +3631,9 @@ function ThemeSettingsControls({value,onChange,disabled=false,compact=false,show
     {compact&&<small>رنگ دلخواه و روشن/تاریک را همین‌جا انتخاب کنید؛ بعد از ساخت حساب ذخیره می‌شود.</small>}
   </div>;
 }
-function IdentityScanField({value,onChange}) {
+function IdentityScanField({value,onChange,onBusyChange}) {
+  const mounted=React.useRef(true);
+  useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [viewUrl,setViewUrl]=useState('');
@@ -3448,10 +3649,10 @@ function IdentityScanField({value,onChange}) {
   },[value?.id]);
   const upload=async event=>{
     const file=event.target.files?.[0];if(!file)return;
-    setError('');setBusy(true);
-    try {onChange(await saveIdentityScan(file));}
+    setError('');setBusy(true);onBusyChange?.(true);
+    try {const attachment=await saveIdentityScan(file);if(mounted.current)onChange(attachment);else await removeIdentityScan(attachment.id);}
     catch(e){setError(e.message||'حفظ فایل انجام نشد.');}
-    finally {setBusy(false);event.target.value='';}
+    finally {if(mounted.current){setBusy(false);onBusyChange?.(false);}event.target.value='';}
   };
   return <div className="identity-scan-field">
     <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={upload} disabled={busy} aria-label="آپلود عکس یا سکن تذکره"/>
@@ -3472,15 +3673,16 @@ function SettingsPage({ preferences, years, data, appearance, onSaveAppearance, 
   const [logoBusy,setLogoBusy]=useState(false);
   const [fiscalYear, setFiscalYear] = useState(preferences.fiscalYear);
   const [openingCash,setOpeningCash]=useState(String(preferences.openingCash??0));
+  const [calendarMode,setCalendarMode]=useState(normalizedCalendarMode(preferences.calendarMode));
   const [themeDraft,setThemeDraft]=useState(()=>normalizeAppearance(appearance));
-  useEffect(() => { setShopName(preferences.shopName); setShopLogo(preferences.shopLogo||''); setFiscalYear(preferences.fiscalYear); setOpeningCash(String(preferences.openingCash??0)); }, [preferences.shopName, preferences.shopLogo, preferences.fiscalYear, preferences.openingCash]);
+  useEffect(() => { setShopName(preferences.shopName); setShopLogo(preferences.shopLogo||''); setFiscalYear(preferences.fiscalYear); setOpeningCash(String(preferences.openingCash??0)); setCalendarMode(normalizedCalendarMode(preferences.calendarMode)); }, [preferences.shopName, preferences.shopLogo, preferences.fiscalYear, preferences.openingCash, preferences.calendarMode]);
   useEffect(()=>setThemeDraft(normalizeAppearance(appearance)),[appearance]);
   const save = event => {
     event.preventDefault();
     const name = shopName.trim();
     if (!name || logoBusy) return;
     if(!Number.isFinite(Number(openingCash))||Number(openingCash)<0) return;
-    if(!onSave({shopName:name.slice(0,90), shopLogo:safeBusinessLogo(shopLogo), openingCash:Number(openingCash), fiscalYear:Number(fiscalYear)})) setFiscalYear(preferences.fiscalYear);
+    if(!onSave({shopName:name.slice(0,90), shopLogo:safeBusinessLogo(shopLogo), openingCash:Number(openingCash), fiscalYear:Number(fiscalYear),calendarMode})) setFiscalYear(preferences.fiscalYear);
   };
   return <>
     <PageHeading title="تنظیمات" description="نام عمده‌فروشی و سال مالی را تنظیم کنید" />
@@ -3497,7 +3699,7 @@ function SettingsPage({ preferences, years, data, appearance, onSaveAppearance, 
           </select>
           <small>این انتخاب در مقایسهٔ خریداری‌ها، فروشات و ارقام سالانهٔ داشبورد استفاده می‌شود.</small>
         </label>
-        <label>پول آغازین صندوق نقدی (افغانی)<input type="number" min="0" step="0.01" value={openingCash} onChange={e=>setOpeningCash(e.target.value)} disabled={!canManage}/><small>موجودی هنگام راه‌اندازی فروشگاه؛ تغییر آن با تأیید رمز مدیر انجام می‌شود.</small></label>
+        <label>پول آغازین صندوق نقدی (افغانی)<GroupedNumberInput  min="0" step="0.01" value={openingCash} onChange={e=>setOpeningCash(e.target.value)} disabled={!canManage}/><small>موجودی هنگام راه‌اندازی فروشگاه؛ تغییر آن با تأیید رمز مدیر انجام می‌شود.</small></label>
         {canManage && <div className="business-settings-actions"><button className="btn primary" type="submit" disabled={logoBusy}><Save size={17}/> ذخیره تنظیمات</button></div>}
       </form>
     </Panel>
@@ -3506,12 +3708,23 @@ function SettingsPage({ preferences, years, data, appearance, onSaveAppearance, 
       <ThemeSettingsControls value={themeDraft} onChange={setThemeDraft} disabled={!canManage} showMode={false}/>
       {canManage && <div className="business-settings-actions"><button type="button" className="btn primary" onClick={()=>onSaveAppearance(themeDraft)}><Save size={17}/> ذخیره رنگ برنامه</button></div>}
     </Panel>
+    <DocumentDesignSettings kind="bill" preferences={preferences} canManage={canManage} onSave={onSave}/>
+    <DocumentDesignSettings kind="contract" preferences={preferences} canManage={canManage} onSave={onSave}/>
     <Panel title="زبان و نمایش">
-      <div className="settings-list">
-        <div><strong>زبان برنامه</strong><span>دری افغانستان</span></div>
-        <div><strong>جهت نمایش</strong><span>راست به چپ (RTL)</span></div>
-        <div><strong>تقویم</strong><span>هجری شمسی افغانستان</span></div>
-        <div><strong>واحد پول اصلی</strong><span>افغانی (AFN) — نرخ USD و PKR هنگام ثبت هر بل درج می‌شود</span></div>
+      <div className="business-settings-form">
+        <label>نوع تقویم در برنامه
+          <select value={calendarMode} onChange={e=>setCalendarMode(e.target.value)} disabled={!canManage}>
+            <option value="shamsi">تاریخ شمسی (هجری شمسی افغانستان)</option>
+            <option value="gregorian">تاریخ میلادی (Gregorian)</option>
+          </select>
+          <small>تاریخ بل‌ها، جدول‌ها و فلتر گزارش مطابق انتخاب شما نمایش داده می‌شود. تاریخ‌های قدیمی بدون پاک‌شدن قابل نمایش هستند.</small>
+        </label>
+        {canManage && <div className="business-settings-actions"><button type="button" className="btn primary" onClick={()=>onSave({calendarMode})}><Save size={16}/> ذخیره نوع تقویم</button></div>}
+        <div className="settings-list">
+          <div><strong>زبان برنامه</strong><span>دری افغانستان</span></div>
+          <div><strong>جهت نمایش</strong><span>راست به چپ (RTL)</span></div>
+          <div><strong>واحد پول اصلی</strong><span>افغانی (AFN)</span></div>
+        </div>
       </div>
     </Panel>
     {canManage && <Panel title="مدیریت معلومات">
@@ -3521,6 +3734,41 @@ function SettingsPage({ preferences, years, data, appearance, onSaveAppearance, 
       <button className="btn secondary" type="button" onClick={onResetBusiness}><RotateCcw size={16}/> راه‌اندازی دوباره از صفر</button>
     </Panel>}
   </>;
+}
+
+function DocumentDesignSettings({kind,preferences,canManage,onSave}){
+  const field=kind==='bill'?'billDesign':'contractDesign';
+  const [draft,setDraft]=useState(()=>normalizeDocumentDesign(preferences[field]));
+  const [busy,setBusy]=useState(false);
+  const stored=preferences[field];
+  useEffect(()=>setDraft(normalizeDocumentDesign(stored)),[stored]);
+  const update=(key,value)=>setDraft(prev=>({...prev,[key]:value}));
+  const title=kind==='bill'?'طرح چاپ بل‌های فروش و خرید':'طرح چاپ قرارداد';
+  const logoLabel=kind==='bill'?'بارگذاری لوگوی بل‌های فروش و خرید':'بارگذاری لوگوی قرارداد';
+  const setPrintLogo=logo=>setDraft(prev=>({...prev,logo,logoMode:logo?'custom':preferences.shopLogo?'shop':'none'}));
+  const previewPrefs={...preferences,[field]:draft};
+  const design=resolveDocumentDesign(previewPrefs,kind);
+  const preview=()=>{
+    const invoice={type:'sale',number:'نمونه',title:'نمونه چاپ',party:'مشتری نمونه',date:afghanKabulToday(),items:[{product:'جنس نمونه',quantity:2,price:100,discount:0}],total:200,paid:100,balance:100};
+    if(kind==='bill') printHtml(invoicePrintHtml(invoice,{},previewPrefs,preferences.calendarMode));
+    else printHtml(contractPrintHtml(contractSnapshot({name:'مشتری نمونه',saleContract:{enabled:true}},previewPrefs,invoice),null,preferences.calendarMode,previewPrefs));
+  };
+  return <Panel title={title}><div className="business-settings-form">
+    <label>رنگ چاپ<select disabled={!canManage} value={['#214661','#165f4c','#574180','#3e4147'].includes(draft.color)?draft.color:'custom'} onChange={e=>{if(e.target.value==='custom') update('color','#007aff');else update('color',e.target.value);}}><option value="#214661">آبی رسمی</option><option value="#165f4c">سبز</option><option value="#574180">بنفش</option><option value="#3e4147">خاکستری</option><option value="custom">رنگ دلخواه</option></select></label>
+    <label>انتخاب رنگ دلخواه<input type="color" value={draft.color} disabled={!canManage} onChange={e=>update('color',e.target.value)}/></label>
+    <div className="print-logo-section">
+      <h3>{kind==='bill'?'لوگوی بل‌های فروش و خرید':'لوگوی قرارداد مشتریان'}</h3>
+      <p className="settings-muted-info">{kind==='bill'?'این عکس در بالای هر دو بل فروش و خرید چاپ می‌شود.':'این عکس در بالای قرارداد چاپ می‌شود.'} برای این سند می‌توانید لوگوی جداگانه انتخاب کنید.</p>
+      <BusinessLogoPicker inputId={`print-logo-${kind}`} logo={draft.logo} shopName={preferences.shopName} disabled={!canManage} onChange={setPrintLogo} onBusyChange={setBusy} label={logoLabel} help="عکس JPG، PNG یا WebP؛ حداکثر ۵ MB. با انتخاب عکس، لوگوی چاپ به‌صورت خودکار انتخاب می‌شود." printLogo/>
+      <label>لوگو در نسخه چاپی<select disabled={!canManage||busy} value={draft.logoMode} onChange={e=>update('logoMode',e.target.value)}><option value="shop">استفاده از لوگوی اصلی عمده‌فروشی (منو)</option><option value="custom" disabled={!draft.logo}>استفاده از عکس بارگذاری‌شده در بالا</option><option value="none">چاپ بدون لوگو</option></select></label>
+      {draft.logoMode==='shop'&&!preferences.shopLogo&&<small>لوگوی اصلی هنوز انتخاب نشده است. عکس را در همین بخش بارگذاری کنید یا در معلومات عمده‌فروشی لوگوی اصلی را اضافه کنید.</small>}
+      {draft.logoMode==='custom'&&!draft.logo&&<small>برای چاپ لوگوی جداگانه، ابتدا عکس را انتخاب کنید.</small>}
+      <strong className="print-logo-preview-title">پیش‌نمایش سربرگ چاپ</strong>
+      <div className="document-design-preview" style={{borderColor:design.color}}><div>{design.logo?<img src={design.logo} alt="لوگوی چاپ"/>:<small>بدون لوگو</small>}<strong>{preferences.shopName}</strong></div><span style={{background:themeColors(design.color,'light').buttonBg,color:'#fff'}}>{kind==='bill'?'جزئیات بل — نمونه':'مشخصات قرارداد — نمونه'}</span></div>
+    </div>
+    <div className="business-settings-actions"><button type="button" className="btn secondary" onClick={preview} disabled={busy||(draft.logoMode==='custom'&&!draft.logo)}><Printer size={16}/> پیش‌نمایش چاپ</button>{canManage&&<button type="button" className="btn primary" disabled={busy||(draft.logoMode==='custom'&&!draft.logo)} onClick={()=>onSave({[field]:normalizeDocumentDesign(draft)})}><Save size={16}/> ذخیره طرح چاپ</button>}</div>
+    <small>ذخیره طرح مستلزم تأیید رمز مدیر است. رنگ برنامه تغییر نمی‌کند.</small>
+  </div></Panel>;
 }
 
 function ProfilePage({preferences,onSave,onNavigate,canEdit=true,roleName=''}) {
@@ -3593,8 +3841,8 @@ function StockMovementForm({data, form, setForm, onSubmit, onCancel}) {
       <label>محصول<select value={form.productId} required onChange={e=>update('productId',e.target.value)}>
         <option value="">محصول را انتخاب کنید</option>{data.products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       {form.kind==='transfer' ? <>{whSelect('fromWarehouseId','از گدام')}{whSelect('toWarehouseId','به گدام')}</> : whSelect('warehouseId','گدام')}
-      <label>تعداد<input type="number" min="0.01" step="any" required value={form.quantity} onChange={e=>update('quantity',e.target.value)}/></label>
-      <label>تاریخ (هجری شمسی افغانستان)<AfghanDatePicker value={form.date} onChange={date=>update('date',date)} required/></label>
+      <label>تعداد<GroupedNumberInput  min="0.01" step="any" required value={form.quantity} onChange={e=>update('quantity',e.target.value)}/></label>
+      <label>تاریخ<AfghanDatePicker value={form.date} onChange={date=>update('date',date)} required/></label>
       <label className="wide">دلیل / توضیحات<textarea rows={2} value={form.notes} onChange={e=>update('notes',e.target.value)} placeholder="مثلاً: شمارش موجودی یا انتقال میان گدام‌ها"/></label>
     </div>
     {form.productId && <p className="info-note">موجودی فعلی در گدام مبدأ: <strong>{number(stock.get(form.productId,origin))}</strong></p>}
@@ -3613,10 +3861,10 @@ function PayrollForm({data,form,setForm,onSubmit,onCancel}) {
       }}><option value="">کارمند را انتخاب کنید</option>{data.employees.map(e=><option key={e.id} value={e.id}>{e.firstName} {e.lastName} — {e.employeeCode||'بدون کد'}</option>)}</select></label>
       <label>ماه<select value={form.month} onChange={e=>update('month',e.target.value)}>{afghanMonths.map((m,i)=><option key={m} value={i+1}>{m}</option>)}</select></label>
       <label>سال هجری شمسی<input type="number" min="1300" max="1600" value={form.year} onChange={e=>update('year',e.target.value)} required/></label>
-      <label>معاش اصلی (افغانی)<input type="number" min="0" step="any" value={form.base||''} onChange={e=>update('base',e.target.value)} required/></label>
-      <label>اضافه‌کاری و امتیازات<input type="number" min="0" step="any" value={form.bonus ?? 0} onChange={e=>update('bonus',e.target.value)}/></label>
-      <label>کسورات<input type="number" min="0" step="any" value={form.deduction ?? 0} onChange={e=>update('deduction',e.target.value)}/></label>
-      <label>تاریخ صدور (هجری شمسی)<AfghanDatePicker value={form.date} onChange={date=>update('date',date)} required/></label>
+      <label>معاش اصلی (افغانی)<GroupedNumberInput  min="0" step="any" value={form.base||''} onChange={e=>update('base',e.target.value)} required/></label>
+      <label>اضافه‌کاری و امتیازات<GroupedNumberInput  min="0" step="any" value={form.bonus ?? 0} onChange={e=>update('bonus',e.target.value)}/></label>
+      <label>کسورات<GroupedNumberInput  min="0" step="any" value={form.deduction ?? 0} onChange={e=>update('deduction',e.target.value)}/></label>
+      <label>تاریخ صدور<AfghanDatePicker value={form.date} onChange={date=>update('date',date)} required/></label>
       <label className="wide">یادداشت<textarea value={form.notes||''} onChange={e=>update('notes',e.target.value)} rows={2}/></label>
     </div>
     <div className="payment-summary-grid"><div className="payment-summary-item"><span>ناخالص</span><strong>{money(total.gross)}</strong></div>
@@ -3626,6 +3874,8 @@ function PayrollForm({data,form,setForm,onSubmit,onCancel}) {
 }
 
 function AfghanDatePicker({value='', onChange, required=false}) {
+  const calendarMode=React.useContext(CalendarModeContext);
+  if(calendarMode==='gregorian')return <input className="gregorian-date-picker" type="date" aria-label="تاریخ میلادی" required={required} value={gregorianFromAfghan(value)} onChange={e=>onChange(afghanFromGregorian(e.target.value))}/>;
   const selected = dateChoiceParts(value);
   const now = afghanCalendarParts();
   const update = (part, choice) => {
@@ -3661,11 +3911,13 @@ function choicesForField(config,key) {
   return AFGHAN_FIELD_CHOICES[key] || null;
 }
 
-function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
+function EntityForm({ config, form, setForm, data, preferences, onSubmit, onCancel }) {
+  const [contractScanBusy,setContractScanBusy]=useState(false);
+  const [identityBusy,setIdentityBusy]=useState(false);
   return (
-    <form onSubmit={onSubmit}>
+    <form onSubmit={event=>{if(contractScanBusy||identityBusy){event.preventDefault();return;}onSubmit(event);}}>
       <div className="modal-grid">
-        {config.fields.map(([key, label]) => key==='identityScan' ? <div className="identity-form-field" key={key}><strong>{label}</strong><IdentityScanField value={form.identityScan} onChange={attachment=>setForm(previous=>({...previous,identityScan:attachment}))}/></div> : (
+        {config.fields.map(([key, label]) => key==='identityScan' ? <div className="identity-form-field" key={key}><strong>{label}</strong><IdentityScanField value={form.identityScan} onBusyChange={setIdentityBusy} onChange={attachment=>setForm(previous=>({...previous,identityScan:attachment}))}/></div> : (
           <label key={key}>
             {label}
             {key === "warehouseId" ? <select value={form.warehouseId || DEFAULT_WAREHOUSE} onChange={e => setForm({ ...form, warehouseId: e.target.value })}>
@@ -3683,21 +3935,11 @@ function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
                 value={form[key] || ""}
                 onChange={(e) => setForm({ ...form, [key]: e.target.value })}
               />
+            ) : ["cost","price","tax","reorder","quantity","salary","opening"].includes(key) ? (
+              <GroupedNumberInput min="0" inputMode="decimal" value={form[key] ?? ""} onChange={e=>setForm({...form,[key]:e.target.value})}/>
             ) : (
               <input
-                type={
-                  [
-                    "cost",
-                    "price",
-                    "tax",
-                    "reorder",
-                    "quantity",
-                    "salary",
-                    "opening",
-                  ].includes(key)
-                    ? "number"
-                    : "text"
-                }
+                type="text"
                 inputMode={['phone','mobile'].includes(key) ? 'tel' : undefined}
                 placeholder={['phone','mobile'].includes(key) ? '07xxxxxxxx یا +93 7xxxxxxxx' : key === 'tazkira' ? 'نمبر تذکره' : key === 'unit' ? 'مثلاً: بوری، کارتن، کیلوگرام' : key === 'economicNumber' ? 'اختیاری' : undefined}
                 value={form[key] ?? ""}
@@ -3707,16 +3949,49 @@ function EntityForm({ config, form, setForm, data, onSubmit, onCancel }) {
           </label>
         ))}
       </div>
+      {config===entityConfigs.customers&&<CustomerContractEditor customer={form} preferences={preferences} onChange={saleContract=>setForm(previous=>({...previous,saleContract:typeof saleContract==='function'?saleContract(previous.saleContract):saleContract}))} onBusyChange={setContractScanBusy}/>}
       <div className="modal-actions">
         <button type="button" className="btn secondary" onClick={onCancel}>
           لغو
         </button>
-        <button className="btn primary">
+        <button className="btn primary" disabled={contractScanBusy||identityBusy}>
           <Save size={15} /> ثبت معلومات
         </button>
       </div>
     </form>
   );
+}
+function CustomerContractEditor({customer,preferences,onChange,onBusyChange}) {
+  const calendarMode=React.useContext(CalendarModeContext);
+  const c=contractDraft(customer.saleContract);
+  const update=(key,value)=>onChange({...c,[key]:value});
+  const changePreset=preset=>onChange(selectContractPreset(c,preset));
+  const error=validateContract(c);
+  return <section className="customer-contract-editor" dir="rtl">
+    <h3><FileText size={19}/> قرارداد فروش و شرایط پرداخت</h3>
+    <label className="contract-check"><input type="checkbox" checked={c.enabled} onChange={e=>{update('enabled',e.target.checked);if(!e.target.checked)onBusyChange?.(false);}}/> برای این مشتری قرارداد فروش ثبت شود</label>
+    {c.enabled&&<>
+      <p className="settings-muted-info">این شرایط در بل فروش مشتری اعمال می‌شود. مشخصات جنس، مبلغ و تاریخ نهایی پرداخت از همان بل تکمیل می‌گردد. قرارداد هر بل مستقل از تغییرات بعدی مشتری محفوظ می‌ماند.</p>
+      <h4>۱. مشخصات قرارداد</h4><div className="contract-fields">
+        <label>عنوان قرارداد<input required value={c.title} onChange={e=>update('title',e.target.value)}/></label>
+        <label>نوع تذکره<input value={c.tazkiraType} onChange={e=>update('tazkiraType',e.target.value)} placeholder="کاغذی / الکترونیکی"/></label>
+      </div>
+      <small>لوگو و رنگ چاپ قرارداد از تنظیمات ← طرح چاپ قرارداد تعیین می‌شود.</small>
+      <h4>۲ و ۳. جنس، مبلغ و شرایط پرداخت</h4><div className="contract-fields">
+        <label>نوع پرداخت<select value={c.preset} onChange={e=>changePreset(e.target.value)}><option value="cash">نقدی و تصفیه کامل (۱۰۰٪)</option><option value="half">۵۰٪ نقد، باقی تا ۲۸ روز</option><option value="quarter">۲۵٪ نقد، باقی تا ۲۸ روز</option><option value="credit">تمام مبلغ نسیه</option><option value="custom">فیصدی دلخواه (وارد کردن دستی)</option></select></label>
+        {c.preset==='custom'?<label>فیصدی دلخواه پیش‌پرداخت (%)<input type="number" inputMode="decimal" min="0" max="100" step="0.01" required value={c.percent??''} placeholder="مثلاً ۳۵ یا ۶۷٫۵" onChange={e=>update('percent',e.target.value)}/><small>هر فیصدی بین ۰ تا ۱۰۰ را وارد کنید؛ اعشاری هم پذیرفته می‌شود.</small></label>:<label>حداقل پیش‌پرداخت (فیصد)<input type="text" readOnly value={`${number(c.percent)}٪`}/><small>برای وارد کردن فیصدی دیگر، «فیصدی دلخواه» را انتخاب کنید.</small></label>}
+        <label>مهلت باقی‌داری (روز)<input type="number" min={Number(c.percent)===100?0:1} max="3650" step="1" required value={c.days} onChange={e=>onChange({...c,preset:'custom',days:e.target.value})}/></label>
+      </div><label className="full-label">شرایط توافقی و توضیحات<textarea rows="3" value={c.terms} onChange={e=>update('terms',e.target.value)}/></label>
+      <h4>۴. مشخصات تضمین‌کننده</h4><div className="contract-fields">{[['guarantor','اسم ضامن'],['father','ولد'],['guarantorId','نمبر تذکره'],['guarantorPhone','شماره تماس'],['guarantorJob','وظیفه / کار مشخص']].map(([key,label])=><label key={key}>{label}<input value={c[key]} onChange={e=>update(key,e.target.value)}/></label>)}</div>
+      <div className="identity-form-field"><strong>عکس / سکن تذکره تضمین‌کننده (اختیاری)</strong><IdentityScanField value={c.guarantorScan} onBusyChange={onBusyChange} onChange={attachment=>onChange(previous=>({...contractDraft(previous),guarantorScan:attachment,guarantorCopy:!!attachment}))}/><small>این سند فقط در معلومات مشتری نگهداری می‌شود و در چاپ بل یا قرارداد نمایش داده نمی‌شود.</small></div>
+      <h4>۵. متن قرارداد و تأیید نهایی — قابل ویرایش</h4>{[['intro','مقدمه'],['payment','تعهد خریدار'],['guarantee','تعهد ضامن'],['delivery','تحویل جنس'],['final','تأیید نهایی']].map(([key,label])=><label key={key} className="full-label">{label}<textarea rows="3" value={c[key]} onChange={e=>update(key,e.target.value)}/></label>)}
+      <div className="contract-fields">{[['representative','نماینده شرکت'],['witness1','شاهد اول'],['witness2','شاهد دوم']].map(([key,label])=><label key={key}>{label}<input value={c[key]} onChange={e=>update(key,e.target.value)}/></label>)}</div>
+      <div className="contract-attachments"><label className="contract-check"><input type="checkbox" checked={c.guarantorCopy} onChange={e=>update('guarantorCopy',e.target.checked)}/> کاپی تذکره ضامن ضمیمه است</label><label className="contract-check"><input type="checkbox" checked={c.receipt} onChange={e=>update('receipt',e.target.checked)}/> رسید پرداخت ضمیمه است</label></div>
+      <small>جای امضا و شصت در نسخه چاپی است؛ علامت ضمیمه فقط موجودیت سند را نشان می‌دهد؛ عکس تذکره چاپ نمی‌شود.</small>
+      {error&&<p className="form-error">{error}</p>}
+      <button type="button" className="btn secondary" disabled={!!error} onClick={()=>printHtml(contractPrintHtml(contractSnapshot({...customer,saleContract:c},preferences,{number:'—',date:afghanKabulToday(),total:0,paid:0,balance:0}),null,calendarMode,preferences))}><Printer size={16}/> پیش‌نمایش / چاپ پیش‌نویس قرارداد</button>
+    </>}
+  </section>;
 }
 function InvoiceForm({
   type,
@@ -3742,7 +4017,7 @@ function InvoiceForm({
     0,
   );
   const currency=form.currency||'AFN';
-  const rates={USD:form.usdRate,PKR:form.pkrRate};
+  const rates={USD:form.usdRate,PKR:form.pkrRate,AED:form.aedRate,EUR:form.eurRate};
   const [showExtras,setShowExtras]=useState(false);
   const [newProduct,setNewProduct]=useState(null);
   const [pendingFx,setPendingFx]=useState(null);
@@ -3757,7 +4032,7 @@ function InvoiceForm({
     if (next===currency) return;
     if (pendingFx) {
       if(next===pendingFx.sourceCurrency) {
-        setItems(pendingFx.items);
+        setItems(refreshCatalogPrices(pendingFx.items, pendingFx.sourceRate));
         setForm(prev=>({...prev,currency:next,paid:pendingFx.paid,extraExpenses:pendingFx.extraExpenses}));
         setPendingFx(null);
       } else {
@@ -3766,7 +4041,7 @@ function InvoiceForm({
       }
       return;
     }
-    const hasValues = items.some(i=>Number(i.price)||Number(i.discount)) || Number(form.paid) || expensesTotal;
+    const hasValues = items.some(i=>(i.catalogPriceAfn==null&&Number(i.price))||Number(i.discount)) || Number(form.paid) || expensesTotal;
     let originRate=0, destinationRate=0;
     try {originRate=currencyRate(currency,rates);} catch {}
     try {destinationRate=currencyRate(next,rates);} catch {}
@@ -3779,30 +4054,35 @@ function InvoiceForm({
     }
     if(hasValues) {
       const convert=value=>value===''?'':String(roundMoney(Number(value)*originRate/destinationRate));
-      setItems(items.map(item=>({...item,price:convert(item.price),discount:convert(item.discount||0)})));
+      setItems(refreshCatalogPrices(items.map(item=>({...item,price:convert(item.price),discount:convert(item.discount||0)})),destinationRate));
       setForm(prev=>({...prev,currency:next,paid:convert(prev.paid||0),extraExpenses:(prev.extraExpenses||[]).map(e=>({...e,amount:convert(e.amount)}))}));
-    } else setForm(prev=>({...prev,currency:next}));
+    } else {setForm(prev=>({...prev,currency:next}));setItems(refreshCatalogPrices(items,destinationRate));}
   };
   const changeSelectedRate = value => {
     const code=currency;
-    const field=code==='USD'?'usdRate':'pkrRate';
-    if(!['USD','PKR'].includes(code)) return;
+    const field=rateFieldFor(code);
+    if(!field) return;
     setForm(prev=>({...prev,[field]:value}));
     const rate=Number(value);
     if(pendingFx && pendingFx.targetCurrency===code && Number.isFinite(rate) && rate>0) {
       const convert=value=>value===''?'':String(roundMoney(Number(value)*pendingFx.sourceRate/rate));
-      setItems(pendingFx.items.map(item=>({...item,price:convert(item.price),discount:convert(item.discount||0)})));
+      setItems(refreshCatalogPrices(pendingFx.items.map(item=>({...item,price:convert(item.price),discount:convert(item.discount||0)})),rate));
       setForm(prev=>({...prev,[field]:value,paid:convert(pendingFx.paid||0),extraExpenses:pendingFx.extraExpenses.map(e=>({...e,amount:convert(e.amount)}))}));
       setPendingFx(null);
-    }
+    } else if(!pendingFx) setItems(previous=>refreshCatalogPrices(previous,rate));
   };
+  const calendarMode=React.useContext(CalendarModeContext);
+  const saleContract=type==='sale'?data.customers.find(c=>c.name===form.party)?.saleContract:null;
+  const contractMinimum=requiredDownPaymentSource(total+expensesTotal,saleContract,currentRate);
+  const due=saleContract?.enabled?dueDate(form.date,Number(saleContract.days)):'';
+  const underpaid=saleContract?.enabled&&Number(form.paid||0)+0.000001<contractMinimum;
   const partyLabel = type === "purchase" ? "عرضه‌کننده" : "مشتری";
   const parties = type === "purchase" ? data.suppliers : data.customers;
   const addRow = () =>
     setItems([...items, { product: "", quantity: 1, price: "", discount: 0 }]);
   const update = (index, key, value) =>
     setItems(
-      items.map((item, i) => (i === index ? { ...item, [key]: value } : item)),
+      items.map((item, i) => (i === index ? updateInvoiceLine(item,key,value,type,data.products,currentRate) : item)),
     );
   return (
     <form onSubmit={onSubmit}>
@@ -3818,7 +4098,7 @@ function InvoiceForm({
           <p>نرخ همین بل را وارد کنید. این نرخ فقط برای همین بل است.</p>
           <div className="invoice-fx-fields">
             <label>۱ {currency} = چند افغانی؟
-              <input dir="ltr" type="number" min="0" step="any" inputMode="decimal" required placeholder={currency==='USD'?'نرخ دالر به افغانی':'نرخ روپیه به افغانی'} value={currency==='USD'?(form.usdRate??''):(form.pkrRate??'')} onChange={e=>changeSelectedRate(e.target.value)}/>
+              <GroupedNumberInput dir="ltr"  min="0" step="any" inputMode="decimal" required placeholder={`نرخ ${currency} به افغانی`} value={form[rateFieldFor(currency)]??''} onChange={e=>changeSelectedRate(e.target.value)}/>
             </label>
           </div>
           {pendingFx && <small className="invoice-muted-hint" role="status">نرخ را درج کنید تا قیمت‌ها و مصارف قبلی به {currency} تبدیل شوند.</small>}
@@ -3830,6 +4110,18 @@ function InvoiceForm({
             {data.warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </label>
+        {type==='sale' && (data.shipments||[]).length>0 && <>
+          <label>محمولهٔ منبع فروش (اختیاری)
+            <select value={form.shipmentId||''} onChange={e=>setForm({...form,shipmentId:e.target.value,soldTonnes:''})}>
+              <option value="">بدون ارتباط به محموله</option>
+              {data.shipments.map(sh=><option key={sh.id} value={sh.id}>{sh.reference} — {sh.tonnes} تن</option>)}
+            </select>
+          </label>
+          {form.shipmentId && <label>وزن فروش از همین محموله (تن)
+            <GroupedNumberInput required  min="0.001" step="any" value={form.soldTonnes||''} onChange={e=>setForm({...form,soldTonnes:e.target.value})}/>
+            <small>برای محاسبهٔ مفاد دقیق‌تر، وزن واقعی فروخته‌شده از این محموله را درج کنید.</small>
+          </label>}
+        </>}
         <label>
           نام بل
           <input
@@ -3855,13 +4147,13 @@ function InvoiceForm({
           {type==='purchase' && canCreateSupplier && <button type="button" className="inline-create-link" onClick={onCreateSupplier}><UserPlus size={16}/> عرضه‌کننده در فهرست نیست؟ ایجاد عرضه‌کننده جدید</button>}
         </div>
         <label>
-          تاریخ (هجری شمسی افغانستان)
+          تاریخ بل
           <AfghanDatePicker value={form.date} onChange={date=>setForm({...form,date})} required/>
         </label>
         <label>
           مبلغ پرداخت‌شده ({currency})
-          <input
-            type="number"
+          <GroupedNumberInput
+            
             min="0"
             step="any"
             inputMode="decimal"
@@ -3870,11 +4162,14 @@ function InvoiceForm({
           />
         </label>
       </div>
+      {saleContract?.enabled&&<section className="contract-payment-summary"><strong><FileText size={17}/> شرایط قرارداد مشتری</strong><span>حداقل پیش‌پرداخت: {number(saleContract.percent)}٪ — {number(contractMinimum)} {currency}</span><span>مهلت باقی‌داری: {number(saleContract.days)} روز — {formatCalendarDate(due,calendarMode)}</span><button type="button" className="btn secondary" onClick={()=>setForm(prev=>({...prev,paid:String(contractMinimum)}))}>درج مبلغ حداقل پیش‌پرداخت</button>{underpaid&&<small className="form-error">مبلغ پرداخت‌شده کمتر از پیش‌پرداخت قرارداد است.</small>}</section>}
       <div className="invoice-lines">
         <div className="lines-title">
           <strong>اقلام بل</strong>
           <span>مالیات در بل فروش نمایش داده نمی‌شود.</span>
         </div>
+        {type==='sale'&&<small className="invoice-muted-hint">با انتخاب جنس، قیمت فروش ثبت‌شده به‌صورت خودکار درج می‌شود. قیمت قابل تغییر است.</small>}
+        <datalist id="products-list">{data.products.map(p=><option key={p.id} value={p.name}/>)}</datalist>
         <div className="table-wrap responsive-entry-lines">
           <table>
             <thead>
@@ -3896,18 +4191,15 @@ function InvoiceForm({
                       value={item.product}
                       onChange={(e) => update(index, "product", e.target.value)}
                       placeholder="نام محصول"
+                      disabled={!!pendingFx}
                       list="products-list"
                     />
-                    <datalist id="products-list">
-                      {data.products.map((p) => (
-                        <option key={p.id} value={p.name} />
-                      ))}
-                    </datalist>
+
                   </td>
                   <td data-label="تعداد">
-                    <input
+                    <GroupedNumberInput
                       aria-label={`تعداد، قلم ${index + 1}`}
-                      type="number"
+                      
                       min="0"
                       value={item.quantity}
                       onChange={(e) =>
@@ -3916,20 +4208,21 @@ function InvoiceForm({
                     />
                   </td>
                   <td data-label="قیمت واحد">
-                    <input
+                    <GroupedNumberInput
                       aria-label={`قیمت واحد، قلم ${index + 1}`}
-                      type="number"
+                      
                       min="0"
                       step="any"
                       inputMode="decimal"
                       value={item.price}
+                      disabled={!!pendingFx}
                       onChange={(e) => update(index, "price", e.target.value)}
                     />
                   </td>
                   <td data-label="تخفیف">
-                    <input
+                    <GroupedNumberInput
                       aria-label={`تخفیف، قلم ${index + 1}`}
-                      type="number"
+                      
                       min="0"
                       step="any"
                       inputMode="decimal"
@@ -3985,13 +4278,14 @@ function InvoiceForm({
             <label>نام و شرح مصرف
               <input type="text" maxLength="200" required placeholder="مثلاً کرایه موتر، مالیه، بارگیری..." value={extra.description||''} onChange={e=>updateExtra(extra.id,'description',e.target.value)}/>
             </label>
-            <label>مبلغ ({currency})<input type="number" min="0" step="any" inputMode="decimal" value={extra.amount??''} onChange={e=>updateExtra(extra.id,'amount',e.target.value)}/></label>
+            <label>مبلغ ({currency})<GroupedNumberInput  min="0" step="any" inputMode="decimal" value={extra.amount??''} onChange={e=>updateExtra(extra.id,'amount',e.target.value)}/></label>
             <button type="button" className="icon-btn small danger invoice-extra-remove" title="حذف مصرف" aria-label="حذف مصرف" onClick={()=>removeExtra(extra.id)}><Trash2 size={16}/></button>
           </div>)}
           <button type="button" className="add-line" onClick={addExtra}><Plus size={15}/> افزودن مصرف دیگر</button>
           {!extraValid&&<p role="alert" className="form-error">مبلغ مصارف اضافی را بررسی کنید.</p>}
         </div>}
       </section>
+      {saleContract?.enabled&&<section className="customer-contract-editor"><h4>مشخصات وزن جنس برای قرارداد (اختیاری)</h4><div className="contract-fields">{items.map((item,index)=><label key={index}>{item.product||`قلم ${index+1}`} — وزن فی بوجی / واحد (کیلوگرام)<GroupedNumberInput min="0" inputMode="decimal" value={item.weightPerUnit??''} onChange={event=>update(index,'weightPerUnit',event.target.value)}/></label>)}</div></section>}
       <label className="full-label">
         توضیحات
         <textarea
@@ -4034,7 +4328,7 @@ function JournalForm({ form, setForm, items, setItems, onSubmit, onCancel }) {
           />
         </label>
         <label>
-          تاریخ (هجری شمسی افغانستان)
+          تاریخ بل
           <AfghanDatePicker value={form.date} onChange={date=>setForm({...form,date})} required/>
         </label>
       </div>
@@ -4084,18 +4378,18 @@ function JournalForm({ form, setForm, items, setItems, onSubmit, onCancel }) {
                     />
                   </td>
                   <td data-label="بدهکار">
-                    <input
+                    <GroupedNumberInput
                       aria-label={`بدهکار، تراکنش ${i + 1}`}
-                      type="number"
+                      
                       min="0"
                       value={item.debit}
                       onChange={(e) => update(i, "debit", e.target.value)}
                     />
                   </td>
                   <td data-label="بستانکار">
-                    <input
+                    <GroupedNumberInput
                       aria-label={`بستانکار، تراکنش ${i + 1}`}
-                      type="number"
+                      
                       min="0"
                       value={item.credit}
                       onChange={(e) => update(i, "credit", e.target.value)}
@@ -4156,11 +4450,13 @@ function Modal({ title, onClose, children }) {
   );
 }
 function downloadCsv(title, columns, rows) {
+  let calendarMode='shamsi';
+  try {calendarMode=JSON.parse(localStorage.getItem(FRESH_STORAGE_KEYS.preferences)||'{}').calendarMode||'shamsi';}catch{}
   const csv = [
     columns.map((x) => x[1]).join(","),
     ...rows.map((row) =>
       columns
-        .map(([key]) => `"${String(row[key] ?? "").replaceAll('"', '""')}"`)
+        .map(([key]) => `"${String(['date','paidDate'].includes(key)?formatCalendarDate(row[key]??'',calendarMode):row[key]??'').replaceAll('"', '""')}"`)
         .join(","),
     ),
   ].join("\n");
@@ -4190,8 +4486,8 @@ function downloadJournalCsv(rows) {
       ["number", "شماره سند"],
       ["date", "تاریخ"],
       ["name", "نام سند"],
-      ["debit", "بدهکار"],
-      ["credit", "بستانکار"],
+      ["debit", "دیبیت"],
+      ["credit", "کریدیت"],
     ],
     rows,
   );

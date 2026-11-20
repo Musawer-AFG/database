@@ -188,3 +188,36 @@ See `THEME_AND_INVOICE_FIXES_DARI.md` for fixes to dark/light/color hover states
 
 ## تازه‌ترین تغییرات: رنگ، جزئیات مشتری/کارمند و حاضری
 راهنمای `THEME_DETAILS_ATTENDANCE_DARI.md` را ببینید. دکمهٔ تاریک/روشن در بالای صفحه است؛ رنگ‌ها از تنظیمات تغییر می‌کنند. در فهرست مشتریان یا کارمندان روی ریکارد کلیک کنید تا معلومات کامل باز شود. روز جمعه رخصتی عمومی و روزهای کاری به‌صورت پیش‌فرض حاضر نمایش داده می‌شوند، ولی مسئول باید غیابت را اصلاح کند.
+
+---
+
+## Wholesale workflows modeled after the owner’s Excel examples (November 2026)
+
+Based on the business owner's 14 Excel spreadsheets, this React version includes:
+
+- **Container/shipment costing** (`/warehouse/shipments`): link one purchase bill to a container or group of containers, record distinct freight/customs/commission charges, original currency and per-charge FX, compute landed total and per-tonne AFN cost. Cash deductions occur only for paid charges. Do not duplicate expenses already in a purchase bill.
+- **Trader statements and settlements** (`/accounting/traders`): customer/supplier running balance, partial payment against a specific invoice, on-account payment, third-party transfer, original currency and rate. If a transfer did not enter/leave the physical cash register, uncheck the cash option.
+- **Currencies**: AFN, USD, PKR, AED and EUR can be selected on sales/purchase invoices and in settlement forms, with per-transaction AFN rates.
+- **Auto-calculated journals**: journal, ledger and trial-balance reports derive double entries from invoices, payments, salaries, expenses, shop cash entries, shipment charges, and manual journals. These generated entries are recalculated, *not persisted ledger postings*.
+- **Profit analysis** (`/reports/profit`): average landed-cost estimates, or per-tonne cost if sales are linked to a shipment with the actual tonnes sold.
+- **No Excel upload is required.** The owner’s spreadsheets were design references only. Enter purchases, sales, expenses, container costs, and repayments in their ordinary application forms.
+
+**Testing:** run `npm install`, `npm test`, `npm run build`, `npm run dev`. There is **no Excel reader dependency**. For Vercel configure framework Vite, build `npm run build`, output `dist`.
+
+**Important:** This remains a **single-browser client demo**, not a multiuser PostgreSQL production system. The PostgreSQL schema in `postgres/003_wholesale_trade_accounting_DRAFT.sql` is a migration *draft*, not an active database. Do not use real sensitive identity scans or rely on this prototype for cash custody, payroll, or legal accounting. See `EXCEL_ACCEPTANCE_DARI.md` for the workbook-to-feature mapping and acceptance-testing ideas; users do not upload the original workbooks.
+
+
+## آخرین تغییرات گزارش‌ها و بل‌ها
+
+راهنمای `REPORTS_INVOICES_UPDATE_DARI.md` شامل جزئیات بازکردن بل خرید/فروش، مصارف جداگانه، نمودارهای گزارش، انتخاب تقویم میلادی/شمسی و فرمت ارقام است. این نسخه فایل Excel را برای ثبت اجباری نمی‌خواهد.
+
+## قرارداد مشتری و چاپ مستقل
+See `CONTRACTS_PRINT_ATTENDANCE_DARI.md`.
+
+### Custom contract down-payment percentage
+Select «فیصدی دلخواه (وارد کردن دستی)» in the customer contract form to enter a percentage from 0 to 100, including decimals (up to two places). The existing minimum-payment validation and printable contract use that percentage.
+
+Validation: 109 Node tests pass; JS/JSX parser checks pass. Full Vite build not run (dependencies absent).
+
+## Print designs and catalog pricing
+See PRINT_DESIGNS_CUSTOMER_CONTRACT_DARI.md. Independent password-protected print designs, private guarantor attachments, customer contract editing, and sales catalog price autofill.

@@ -1,3 +1,11 @@
+## Reports simplified and invoice list hover removed (2026-11-18)
+
+- Removed bright blue hover/background and outline from sales/purchase invoice rows. Users can open details by invoice number or eye action.
+- Replaced the report multi-bar charts with plain-language, filter-responsive overview cards; general report has a simple paid-versus-outstanding progress indicator.
+- Added a friendly guide to debit/credit and clear purpose descriptions for accounting reports.
+- Changed profit analysis chart into an understandable step-by-step profit calculation.
+- All existing business data, invoice breakdowns, roles, and routing remain as before.
+
 ## Sidebar navigation improvement
 - Removed «خروج از حساب» from the sidebar to leave more vertical space for navigation.
 - Logout remains under the account dropdown in the upper navigation bar for signed-in users.
@@ -123,3 +131,5 @@
 - Replaced browser confirmation dialogs for clearing transactions and resetting the shop with a password dialog, an explicit reminder and irreversible-action acknowledgment.
 - No data or settings are changed when an action is cancelled or a password is incorrect.
 - Security is still frontend-only; a backend must enforce authorization in production.
+
+- Print logo uploads are always visible in both print settings panels; upload automatically selects the custom logo. 117 tests pass.

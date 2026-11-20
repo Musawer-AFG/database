@@ -1,3 +1,4 @@
+import {documentDesignChanged} from './documentDesigns.js';
 // Summarize mutations before a settings password confirmation.
 // Password verification must take place again for each requested action.
 export function describeSettingsChanges(previous = {}, next = {}) {
@@ -14,11 +15,14 @@ export function describeSettingsChanges(previous = {}, next = {}) {
   if (next.openingCash != null && Number(previous.openingCash || 0) !== Number(next.openingCash)) {
     updates.push(`تغییر موجودی آغازین صندوق نقدی از ${previous.openingCash || 0} به ${next.openingCash}`);
   }
+  if (next.calendarMode !== undefined && next.calendarMode !== previous.calendarMode) updates.push(`تغییر نوع تقویم به ${next.calendarMode==='gregorian'?'میلادی':'شمسی'}`);
   for (const code of ['USD', 'PKR']) {
     if (next.rates && Number(previous.rates?.[code] || 0) !== Number(next.rates[code] || 0)) {
       updates.push(`تغییر نرخ تبدیل ${code} به افغانی`);
     }
   }
+  if(next.billDesign!==undefined&&documentDesignChanged(previous.billDesign,next.billDesign)) updates.push('تغییر طرح چاپ بل‌های فروش و خرید');
+  if(next.contractDesign!==undefined&&documentDesignChanged(previous.contractDesign,next.contractDesign)) updates.push('تغییر طرح چاپ قرارداد مشتریان');
   return updates;
 }
 

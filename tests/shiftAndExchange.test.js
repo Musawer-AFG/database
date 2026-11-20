@@ -35,7 +35,7 @@ test('FX manual rates and AFN base storage',()=>{
   assert.equal(toAfn(300,'AFN',rates),300);
   assert.equal(currencyRate('AFN',rates),1);
   assert.throws(()=>toAfn(10,'USD',{}),/نرخ/);
-  assert.deepEqual(normalizeRates({USD:-1,PKR:'0.25'}),{USD:0,PKR:0.25});
+  assert.deepEqual(normalizeRates({USD:-1,PKR:'0.25'}),{USD:0,PKR:0.25,AED:0,EUR:0});
 });
 test('invoice source currency is converted once into accounting AFN',()=>{
   const result=convertInvoiceToAfn([{product:'Rice',quantity:2,price:10,discount:0}],5,'USD',{USD:70,PKR:0.25});

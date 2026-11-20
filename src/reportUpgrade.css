@@ -1,0 +1,55 @@
+/* Invoice details and readable reports (no highlighted invoice-row hover). */
+:root .invoice-list-table tbody tr:hover,
+:root[data-theme="dark"] .invoice-list-table tbody tr:hover {background:transparent!important;outline:0!important;box-shadow:none!important;transform:none!important}
+.invoice-list-table tbody tr{transition:none!important}
+.invoice-list-table .table-detail-link:hover{text-decoration:underline}
+.invoice-detail{display:flex;flex-direction:column;gap:15px;max-width:100%;font-size:14px;color:var(--ink,#222)}
+.invoice-detail h4{margin:6px 0 0;font-size:15px;color:var(--ink,#24232b)}
+.invoice-detail-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.invoice-detail-meta>div{display:flex;gap:5px;flex-direction:column;background:var(--surface-secondary,#f5f5f8);border:1px solid var(--line,#e5e5eb);padding:12px;border-radius:12px;min-width:0}
+.invoice-detail-meta span{font-size:12px;color:var(--muted,#62626b)}
+.invoice-detail-meta strong{font-size:14px;overflow-wrap:anywhere}
+.invoice-detail .table-wrap{overflow-x:auto;border:1px solid var(--line,#e8e8e8);border-radius:10px}
+.invoice-detail .table-wrap table{width:100%;min-width:530px;border-collapse:collapse}
+.invoice-detail .table-wrap td,.invoice-detail .table-wrap th{padding:12px 9px;border-bottom:1px solid var(--line,#e6e6eb);text-align:right;font-size:13px}
+.invoice-detail-breakdown{display:flex;flex-direction:column;gap:8px}
+.invoice-detail-total,.invoice-detail-cost,.invoice-detail-grand{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 13px;border-radius:10px}
+.invoice-detail-total,.invoice-detail-cost{border:1px solid var(--line,#dedfe7);background:var(--surface,#fff)}
+.invoice-detail-cost span,.invoice-detail-total span{overflow-wrap:anywhere}
+.invoice-detail-grand{background:var(--custom-accent-soft,#eaeafe);border:1px solid var(--custom-accent,#6666c2);font-weight:750}
+.invoice-detail-grand strong{font-size:18px;color:var(--custom-accent-text,var(--custom-accent,#5342bb));overflow-wrap:anywhere}
+.invoice-detail-muted{color:var(--muted,#777);font-size:13px;margin:0}
+/* Do not allow date dropdowns and report filters to overlap one another. */
+.panel .report-filter{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px 20px;align-items:end;width:100%;max-width:100%}
+.panel .report-filter>label{display:flex;flex-direction:column;align-items:stretch;gap:8px;min-width:0;width:100%;flex:none;color:var(--ink,#24232b);font-size:14px;position:static}
+.panel .report-filter>label>.afghan-date-picker{width:100%;min-width:0;position:static;grid-template-columns:minmax(60px,.8fr) minmax(88px,1.2fr) minmax(85px,1fr);gap:8px}
+.panel .report-filter :is(select,input){position:relative;max-width:100%;width:100%;min-width:0;min-height:47px;padding:9px 8px;z-index:auto;transform:none}
+.panel .report-filter>.btn{width:100%;min-height:47px}
+.gregorian-date-picker{width:100%;min-height:46px;min-width:0;direction:ltr;text-align:left;color:var(--ink,#252525);background:var(--surface,#fff);border:1px solid var(--line,#dedfe6);padding:10px 12px;border-radius:10px}
+/* Readable report summaries in place of multi-series charts. */
+.report-simple{border:1px solid var(--line,#e5e7ec);border-radius:16px;background:var(--surface,#fff);padding:20px;margin:16px 0 18px;min-width:0}
+.report-simple-heading h3{font-size:17px;font-weight:750;color:var(--ink,#262632);margin:0 0 7px}
+.report-simple-heading p{font-size:13px;line-height:1.85;color:var(--muted,#70707a);margin:0 0 17px}
+.report-simple-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px}
+.report-simple-tile{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:12px;background:var(--surface-secondary,#f6f6f9);border:1px solid var(--line,#e7e7ec);min-width:0}
+.report-simple-tile>span{color:var(--muted,#6d6d75);font-size:12px;line-height:1.7}
+.report-simple-tile>strong{color:var(--ink,#202027);font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;direction:ltr;text-align:right;overflow-wrap:anywhere}
+.report-simple-tile>small{color:var(--muted,#777780);font-size:11px;line-height:1.65}
+.report-simple-note{padding:15px 16px;border:1px solid var(--line,#e5e6eb);border-radius:12px;margin-top:15px;color:var(--ink,#353541);background:var(--surface,#fff)}
+.report-simple-note p{margin:8px 0 0;font-size:12px;line-height:1.9;color:var(--muted,#65656f)}
+.report-simple-note p:first-child{margin-top:0}
+.report-simple-note-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px}
+.report-simple-note-header strong{font-weight:700;color:var(--ink,#262632)}
+.report-simple-note-header span{font-weight:700;color:var(--custom-accent-text,var(--custom-accent,#2a7dec))}
+.report-simple-track{height:10px;background:var(--surface-secondary,#eff0f4);border-radius:20px;margin-top:12px;overflow:hidden}
+.report-simple-track>div{height:100%;background:var(--custom-accent,#1672e3);border-radius:20px;transition:width .2s ease}
+@media(max-width:760px){
+ .invoice-detail-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .panel .report-filter{grid-template-columns:minmax(0,1fr)}
+ .report-simple{padding:14px}
+ .report-simple-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .report-simple-tile>strong{font-size:16px}
+}
+@media(max-width:420px){.report-simple-grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:385px){.invoice-detail-meta{grid-template-columns:1fr}.panel .report-filter>label>.afghan-date-picker{gap:4px;grid-template-columns:minmax(0,.9fr) minmax(0,1.2fr) minmax(0,1fr)}}
+@media print{.invoice-detail .modal-actions{display:none!important}.report-simple{break-inside:avoid}}

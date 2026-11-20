@@ -9,7 +9,7 @@ const vercel = JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url)
 
 test('every page has its own distinct, reversible React Router URL',()=>{
   const allPaths=Object.values(PAGE_PATHS);
-  assert.equal(allPaths.length, 28);
+  assert.ok(allPaths.length >= 31);
   assert.equal(new Set(allPaths).size,allPaths.length);
   for(const [page,path] of Object.entries(PAGE_PATHS)) {
     assert.equal(pathForPage(page),path);

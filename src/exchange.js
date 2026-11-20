@@ -1,19 +1,20 @@
 import {totalExtras,normalizeExtraExpenses} from "./invoiceExtras.js";
 // Manual FX conversion for the client preview; AFN is the accounting/base currency.
-export const CURRENCY_LABELS = {AFN:'افغانی (AFN)',USD:'دالر امریکایی (USD)',PKR:'روپیه پاکستانی (PKR)'};
+export const CURRENCY_LABELS = {AFN:'افغانی (AFN)',USD:'دالر امریکایی (USD)',PKR:'روپیه پاکستانی (PKR)',AED:'درهم امارات (AED)',EUR:'یورو (EUR)'};
 export const CURRENCIES = Object.keys(CURRENCY_LABELS);
-export const DEFAULT_RATES = {USD:0,PKR:0};
+export const DEFAULT_RATES = {USD:0,PKR:0,AED:0,EUR:0};
+export const rateFieldFor = code => ({USD:'usdRate',PKR:'pkrRate',AED:'aedRate',EUR:'eurRate'})[code] || ''; 
 export function validExchangeRate(value) {
   return Number.isFinite(Number(value)) && Number(value)>0 && Number(value)<=1000000;
 }
 export function normalizeRates(source) {
   const value=source && typeof source==='object'?source:{};
-  return {USD:validExchangeRate(value.USD)?Number(value.USD):0,PKR:validExchangeRate(value.PKR)?Number(value.PKR):0};
+  return Object.fromEntries(Object.keys(DEFAULT_RATES).map(code=>[code,validExchangeRate(value[code])?Number(value[code]):0]));
 }
 export const roundMoney = value => Math.round((Number(value)+Number.EPSILON)*100)/100;
 export function currencyRate(currency,rates) {
   if(currency==='AFN') return 1;
-  if(!['USD','PKR'].includes(currency)) throw Error('واحد پول معتبر نیست.');
+  if(!Object.hasOwn(DEFAULT_RATES,currency)) throw Error('واحد پول معتبر نیست.');
   const rate=normalizeRates(rates)[currency];
   if(!rate) throw Error(`نرخ ${currency} را در همین بل یا فورم وارد کنید.`);
   return rate;

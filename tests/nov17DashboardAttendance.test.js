@@ -41,5 +41,5 @@ test('navbar mode toggle and full entity detail controls are wired',()=>{
   assert.ok(main.includes('setAppearance(prev=>({...prev,mode:'));
   assert.ok(main.includes('function EntityDetails('));
   assert.ok(main.includes('function IdentityScanReadOnly('));
-  assert.ok(main.includes('attendanceOverview(data.attendance,employees,year,month)'));
+  assert.ok(main.includes('attendanceOverview(data.attendance,employees,year,month,attendanceToday)'));
 });
