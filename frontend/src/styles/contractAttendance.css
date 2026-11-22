@@ -1,0 +1,102 @@
+.customer-contract-editor{border:1px solid var(--line);border-radius:14px;padding:16px;margin:18px 0;display:grid;gap:12px;background:var(--surface)}
+.customer-contract-editor h3,.customer-contract-editor h4{display:flex;align-items:center;gap:8px;margin:4px 0;color:var(--ink)}
+.contract-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.contract-fields label,.customer-contract-editor .full-label,.attendance-cell-editor label{display:grid;gap:6px;min-width:0}
+.contract-fields input,.contract-fields select,.customer-contract-editor textarea{min-height:42px;width:100%;min-width:0}
+.contract-check{display:flex!important;align-items:center;gap:8px;font-weight:600}
+.contract-check input[type=checkbox]{width:18px!important;height:18px!important;min-height:0!important;flex:none;accent-color:var(--custom-accent,#007aff)}
+.contract-logo-field{display:grid;gap:8px;border:1px solid var(--line);border-radius:10px;padding:12px}
+.contract-attachments{display:flex;flex-wrap:wrap;gap:12px}.contract-wrap-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.contract-payment-summary{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px;margin:12px 0;border:1px solid var(--line);border-radius:12px;background:var(--surface-secondary)}
+.contract-payment-summary strong{display:flex;gap:6px;align-items:center}.contract-payment-summary .form-error{flex-basis:100%}
+.attendance-cell-editor{display:grid;gap:14px}.attendance-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.attendance-choice{min-height:48px;border:1px solid var(--line);color:var(--ink);background:var(--surface);border-radius:9px;cursor:pointer;font-weight:600}
+.attendance-choice.selected{border-color:var(--accent-button-bg);box-shadow:inset 0 0 0 1px var(--accent-button-bg);color:var(--custom-accent-text);background:var(--custom-accent-soft)}
+.attendance-grid .attendance-cell{cursor:pointer;touch-action:manipulation;transition:none!important}
+@media(max-width:600px){.contract-fields{grid-template-columns:1fr}.customer-contract-editor{padding:10px}.contract-payment-summary{align-items:stretch;flex-direction:column}.attendance-cell-editor .modal-actions{flex-wrap:wrap}}
+.document-design-preview{border:1px solid;border-radius:10px;overflow:hidden;max-width:420px;background:#fff;color:#17232e;display:grid;gap:8px;padding:12px}.document-design-preview>div{display:flex;gap:12px;align-items:center;min-height:48px;overflow-wrap:anywhere}.document-design-preview img{width:48px;height:48px;object-fit:contain}.document-design-preview>span{padding:8px;border-radius:4px;font-weight:600}
+/* Dedicated, always-visible print logo controls, independent of the sidebar image. */
+.print-logo-section{grid-column:1/-1;display:grid;gap:12px;min-width:0;border:1px solid var(--line);border-radius:12px;padding:14px}
+.print-logo-section h3{margin:0;font-size:16px;color:var(--ink)}
+.print-logo-section .settings-muted-info{margin:0}
+.print-logo-section .business-logo-picker{background:var(--surface);border-color:var(--line)}
+.print-logo-section .business-logo-picker-controls>label{color:var(--ink)}
+.print-logo-section .business-logo-preview{background:var(--surface-secondary);color:var(--ink);border:1px solid var(--line)}
+.print-logo-section .business-logo-preview small{font-size:11px;line-height:1.4;text-align:center}
+.print-logo-section .business-logo-picker-controls input[type=file]{max-width:100%;min-width:0}
+.print-logo-preview-title{font-size:13px;color:var(--ink)}
+@media(max-width:480px){.print-logo-section{padding:10px}.print-logo-section .business-logo-picker{flex-direction:column;align-items:stretch}.print-logo-section .business-logo-preview{flex:0 0 auto}}
+
+/* November 2026: space Settings sections and fields consistently. */
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  padding-bottom: 22px;
+}
+.settings-page > :is(.panel, .section-heading) { margin-top: 0; margin-bottom: 0; min-width: 0; }
+.settings-page .business-settings-form { row-gap: 20px; column-gap: 20px; align-items: start; }
+.settings-page .business-settings-form > :is(.settings-muted-info, .print-logo-section, .business-settings-actions,
+  .business-logo-picker, .settings-list, .theme-settings, .business-logo-picker-controls,
+  .print-logo-preview-title, .document-design-preview) { grid-column: 1 / -1; }
+.settings-page .business-settings-form > small { grid-column: 1 / -1; }
+.settings-page .panel { padding: clamp(16px, 2.3vw, 24px); }
+.settings-page .panel-heading { margin-bottom: 18px; }
+.settings-page .print-logo-section { margin-top: 4px; margin-bottom: 5px; }
+.settings-page .business-settings-actions { margin-top: 6px; }
+@media (max-width: 700px) {
+  .settings-page { gap: 17px; }
+  .settings-page .business-settings-form { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
+
+/* Dark-mode coverage for the newly redesigned bills, Settings, and remaining cards.
+   The document-design preview intentionally stays white to represent printed A4 paper. */
+:root[data-theme="dark"] :is(.invoice-quick-guide, .invoice-entry-total,
+  .invoice-step-pills span, .purchase-cost-preview, .invoice-fx-box,
+  .inline-create-panel, .invoice-more-toggle, .invoice-extra-body,
+  .payment-history-row, .payment-result, .payment-summary-item,
+  .profile-preview, .help-guide-card, .business-logo-picker,
+  .settings-changes-list, .settings-password-dialog, .settings-password-input,
+  .currency-rates-box, .work-schedule-panel, .recovery-code-panel,
+  .linked-employee-preview, .role-list-item, .role-permission-group,
+  .dashboard-demo-note, .calendar-days button, .calendar-popover-title .calendar-close,
+  .calendar-navigation button, .invoice-entry-card, .report-simple-tile,
+  .report-simple-note, .report-simple, .invoice-detail-cost,
+  .invoice-detail-total, .gregorian-date-picker, .mobile-card-table tbody tr,
+  .responsive-entry-lines tbody tr, .wide-data-table th:first-child,
+  .wide-data-table td:first-child) {
+  background: var(--surface-secondary) !important;
+  background-image: none !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+}
+:root[data-theme="dark"] :is(.invoice-entry-card, .business-logo-picker,
+  .profile-preview, .help-guide-card, .settings-password-dialog,
+  .role-list-item, .report-simple, .report-simple-note,
+  .mobile-card-table tbody tr) {
+  background: var(--surface) !important;
+}
+:root[data-theme="dark"] :is(.invoice-entry-header strong, .invoice-entry-total strong,
+  .invoice-entry-field span, .invoice-entry-total span, .invoice-quick-guide strong,
+  .invoice-form.quickbooks-form label, .invoice-quick-guide,
+  .business-logo-picker-controls > label, .settings-password-heading h2,
+  .settings-password-heading p, .settings-password-field,
+  .settings-changes-list, .business-logo-picker-controls small,
+  .help-guide-card h3, .purchase-cost-preview h4,
+  .purchase-cost-row strong, .purchase-cost-row span) { color: var(--ink) !important; }
+:root[data-theme="dark"] :is(.invoice-muted-hint, .settings-muted-info,
+  .invoice-entry-total span, .business-logo-picker-controls small,
+  .invoice-entry-field span, .settings-page small) { color: var(--muted) !important; }
+:root[data-theme="dark"] :is(.invoice-step-pills span, .invoice-entry-total strong) {
+  color: var(--custom-accent-text) !important;
+}
+:root[data-theme="dark"] :is(.business-logo-preview img, .sidebar-brand-image) {
+  background: var(--surface-secondary) !important;
+}
+:root[data-theme="dark"] .business-logo-picker-controls input[type=file]::file-selector-button {
+  background: var(--surface-tertiary) !important;
+  color: var(--ink) !important;
+}
+:root[data-theme="dark"] :is(.payment-history-row, .purchase-cost-row, .settings-list div,
+  .role-list-item, .invoice-entry-card, .invoice-quick-guide) { border-color: var(--line) !important; }

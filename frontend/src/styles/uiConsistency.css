@@ -1,0 +1,223 @@
+/* UI consistency pass — shared form rhythm, readable controls, responsive actions.
+   Applied last so legacy page-specific rules keep their layout intent. */
+:root {
+  --ui-field-height: 46px;
+  --ui-action-height: 44px;
+  --ui-field-gap: 8px;
+  --ui-section-gap: 18px;
+}
+
+/* Controls should never render as very small islands in large desktop columns. */
+.workspace .main-area :is(.form-grid,.modal-grid,.business-settings-form,.invoice-form-grid,.trade-grid,.role-user-form) {
+  min-width: 0;
+  column-gap: clamp(12px,1.4vw,20px);
+  row-gap: 18px;
+}
+.workspace .main-area :is(.form-grid,.modal-grid,.business-settings-form,.invoice-form-grid,.trade-grid,.role-user-form) > * { min-width: 0; }
+.workspace .main-area :is(.form-grid,.modal-grid,.business-settings-form,.invoice-form-grid,.trade-grid) label:not(.contract-check),
+.modal-body :is(.form-grid,.modal-grid,.invoice-entry-field,.trade-field) label:not(.contract-check) {
+  min-width: 0;
+  line-height: 1.6;
+}
+.workspace :is(.form-grid,.modal-grid,.business-settings-form,.invoice-form-grid,.report-filter,.filter-row,.trade-grid,.qr-custom-dates,.invoice-entry-grid)
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,textarea),
+.modal-body :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,textarea) {
+  min-height: var(--ui-field-height);
+  min-width: 0;
+  width: 100%;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: 11px;
+}
+.workspace :is(.form-grid,.modal-grid,.business-settings-form,.report-filter,.filter-row,.trade-grid) label > small,
+.modal-body label > small { display:block; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+
+/* Align action buttons with field bottoms instead of letting grid rows center them. */
+.workspace :is(.form-grid,.modal-grid) > .action-cell,
+.workspace :is(.form-grid,.modal-grid) > .form-actions,
+.modal-body :is(.form-grid,.modal-grid) > .action-cell,
+.modal-body :is(.form-grid,.modal-grid) > .form-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  align-self: stretch;
+  min-height: 0;
+}
+.workspace :is(.form-grid,.modal-grid) > :is(.action-cell,.form-actions) > .btn,
+.modal-body :is(.form-grid,.modal-grid) > :is(.action-cell,.form-actions) > .btn { min-height: var(--ui-field-height); }
+.workspace :is(.filter-row,.report-filter) > .btn,
+.workspace .qr-custom-dates > .btn { min-height: var(--ui-field-height); align-self: end; }
+.workspace .business-settings-actions,
+.workspace .role-item-actions,
+.workspace .invoice-line-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
+.workspace .business-settings-actions { margin-top: 12px; }
+
+/* A single predictable touch target and consistent icon alignment. */
+.workspace .btn, .modal-body .btn, .settings-password-dialog .btn {
+  min-height: var(--ui-action-height);
+  padding: 10px 15px;
+  line-height: 1.45;
+  font-size: 13px;
+  gap: 8px;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+.workspace :is(.btn,.add-line,.shortcut,.text-btn) > svg,
+.modal-body :is(.btn,.add-line) > svg { flex: 0 0 auto; }
+.workspace :is(.btn,.text-btn,.shortcut,.side-nav-link,.side-nav-heading,.qr-view-link):focus-visible,
+.modal-body :is(.btn,.icon-btn,input,select,textarea):focus-visible {
+  outline: 2px solid var(--custom-accent,#007aff);
+  outline-offset: 2px;
+}
+.workspace .icon-btn { flex-shrink: 0; }
+
+/* Keep page actions visible when headings and their controls wrap. */
+.workspace .section-heading,
+.workspace .page-toolbar,
+.workspace .panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.workspace .section-heading > div:first-child,
+.workspace .page-toolbar > div:first-child,
+.workspace .panel-heading h3 { min-width: 0; overflow-wrap: anywhere; }
+.workspace .panel-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px; min-width: 0; max-width: 100%; }
+.workspace .panel-heading-actions > :is(.btn,.text-btn) { min-height: 38px; }
+.workspace .heading-actions { display:flex; flex-wrap:wrap; align-items:center; gap:9px; min-width:0; }
+.workspace :is(.summary-strip,.filter-row,.report-filter) { gap: 12px; }
+
+/* Spacing between independent page sections; avoid introducing margins inside grids. */
+.workspace .main-area > .panel + .panel,
+.workspace .main-area > .stats-grid + .panel,
+.workspace .main-area > .summary-strip + .panel,
+.workspace .main-area > .filter-row + .panel { margin-top: var(--ui-section-gap); }
+.workspace .settings-page { display: flex; flex-direction: column; gap: 20px; }
+.workspace .settings-page > :is(.panel,.section-heading) { margin: 0; }
+.workspace .settings-page .panel { min-width: 0; }
+.workspace .settings-page .business-settings-form { gap: 20px; }
+.workspace .settings-page :is(.print-logo-section,.theme-settings,.document-design-preview,.business-logo-picker) { min-width: 0; }
+.workspace .settings-page .business-settings-actions { padding-top: 8px; border-top: 1px solid var(--line,#e6e7ec); }
+
+/* Comfortable invoice cards, modal forms, data tables and dashboard panels. */
+.workspace .invoice-entry-grid { row-gap: 14px; column-gap: 14px; }
+.workspace .invoice-entry-field { min-width:0; }
+.workspace .invoice-entry-product input { min-width:0; }
+.workspace .invoice-line-actions .add-line { min-height:44px; }
+.workspace .invoice-entry-card { min-width:0; }
+.workspace .panel { min-width:0; }
+.workspace .stat-card { min-width:0; }
+.workspace .stat-copy strong, .workspace .qb-kpi-copy strong { overflow-wrap: anywhere; }
+.workspace .qb-overview-shell,
+.workspace .qr-page,
+.workspace .trade-page { gap: var(--ui-section-gap); }
+.workspace .qb-secondary-grid,
+.workspace .qb-main-grid,
+.workspace .dashboard-grid,
+.workspace .dashboard-insights-grid { min-width:0; }
+.workspace .table-wrap { overflow-x:auto; scrollbar-gutter:stable; }
+.workspace .row-actions { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+.workspace .table-action-cell { vertical-align:middle; }
+.workspace .table-action-cell .icon-btn { min-width:35px; min-height:35px; }
+
+/* Accessible modal header/footer placement while respecting the screen height. */
+.modal { max-width: calc(100vw - 24px); max-height: min(92dvh,970px); }
+.modal-header { display:flex; gap:14px; align-items:center; }
+.modal-header h2 { min-width:0; overflow-wrap:anywhere; line-height:1.5; }
+.modal-body { overflow-wrap:anywhere; }
+.modal-body .modal-actions { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:10px; padding-top:14px; border-top:1px solid var(--line,#e7e9ee); }
+.modal-body .modal-grid { min-width:0; }
+
+/* The document print preview is intentionally white; app surfaces should not be. */
+:root[data-theme="dark"] :is(.qb-kpi-card,.qb-health-card,.invoice-entry-card,.purchase-cost-preview,.invoice-quick-guide,.inline-create-panel,.invoice-extra-body,
+  .invoice-entry-total,.invoice-fx-box,.invoice-more-toggle,.role-permission-group,.role-list-item,.qr-filter,.qr-card,.qr-tile,
+  .recovery-code-panel,.payment-history-row,.payment-result,.trade-panel,.entity-details-field,.settings-password-dialog) {
+  background: var(--surface-secondary,#242937)!important;
+  color: var(--ink,#f0f2f7)!important;
+  border-color: var(--line,#383d4c)!important;
+}
+:root[data-theme="dark"] :is(.qb-kpi-copy strong,.qb-health-card strong,.invoice-entry-header strong,.invoice-entry-total strong,
+ .purchase-cost-row strong,.profit-breakdown-copy strong,.receivable-payable-row strong,.payment-summary-item strong) {
+  color: var(--ink,#f0f2f7)!important;
+}
+:root[data-theme="dark"] :is(.qb-kpi-copy small,.qb-health-card small,.invoice-entry-field span,.invoice-muted-hint,
+  .purchase-cost-preview p,.role-user-form label small,.settings-page label small,.qr-period-caption) { color: var(--muted,#adb4c2)!important; }
+:root[data-theme="dark"] :is(.profit-breakdown-track,.bar-track,.insight-bar-track,.report-simple-track) {
+  background: var(--surface-tertiary,#2e3444)!important;
+}
+
+@media (max-width: 1050px) {
+  .workspace .panel-heading { align-items:flex-start; }
+  .workspace .business-settings-form { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 720px) {
+  :root { --ui-field-height: 46px; --ui-section-gap: 14px; }
+  .workspace .main-area :is(.form-grid,.modal-grid,.business-settings-form,.invoice-form-grid,.trade-grid) { grid-template-columns:minmax(0,1fr); gap:14px; }
+  .workspace .main-area :is(.form-grid,.modal-grid) > .wide { grid-column:1/-1; }
+  .workspace .main-area :is(.form-grid,.modal-grid) > :is(.action-cell,.form-actions) { width:100%; grid-column:1/-1; }
+  .workspace .main-area :is(.form-grid,.modal-grid) > :is(.action-cell,.form-actions) > .btn { width:100%; }
+  .workspace .panel-heading { align-items:flex-start; }
+  .workspace .panel-heading-actions { width:100%; }
+  .workspace .heading-actions { width:100%; }
+  .workspace .heading-actions > .btn { flex:1 1 180px; }
+  .workspace :is(.filter-row,.report-filter) > .btn { flex:1 1 145px; }
+  .workspace .settings-page { gap:14px; }
+  .workspace .settings-page .business-settings-form { grid-template-columns:minmax(0,1fr); gap:15px; }
+  .workspace .business-settings-actions > .btn { flex:1 1 180px; }
+  .workspace .qb-main-grid,.workspace .qb-secondary-grid { grid-template-columns:minmax(0,1fr); }
+  .workspace .qr-filter-year { margin-inline-start:0; }
+  .modal { width:100%; max-height:96dvh; max-width:calc(100vw - 16px); }
+  .modal-body .modal-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .modal-body .modal-actions .btn { width:100%; }
+}
+@media (max-width: 480px) {
+  .workspace .panel-heading-actions > .btn { flex:1; }
+  .modal-body .modal-actions { grid-template-columns:minmax(0,1fr); }
+  .workspace .invoice-entry-grid,.workspace .invoice-entry-grid.purchase { grid-template-columns:minmax(0,1fr); }
+  .workspace .invoice-entry-product { grid-column:1/-1; }
+  .workspace .table-action-cell .icon-btn { min-width:40px; min-height:40px; }
+}
+@media print {
+  .workspace .table-wrap { overflow:visible; }
+  .workspace .panel { break-inside:avoid; }
+}
+
+/* Full catalog product creation directly inside a purchase bill. */
+.modal-body .quick-product-panel { gap: 15px; min-width: 0; }
+.modal-body .quick-product-panel h4 { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.modal-body .quick-product-fields {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:14px 16px;
+  min-width:0;
+}
+.modal-body .quick-product-fields > label {
+  display:flex; flex-direction:column; gap:7px;
+  min-width:0; font-size:13px; line-height:1.6;
+  color:var(--ink-secondary,#596a62);
+}
+.modal-body .quick-product-fields :is(input,select) {
+  min-width:0; width:100%; min-height:46px;
+  padding:10px 12px; border-radius:11px; font-size:14px;
+}
+.modal-body .quick-product-fields :is(input,select):disabled {
+  opacity:.75; cursor:not-allowed;
+}
+.modal-body .quick-product-actions {
+  display:flex; justify-content:flex-start; align-items:center;
+  flex-wrap:wrap; gap:10px; margin-top:3px;
+}
+:root[data-theme="dark"] .modal-body .quick-product-fields > label { color:var(--ink-secondary,#d6d9e3); }
+@media(max-width:880px) {
+  .modal-body .quick-product-fields {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:540px) {
+  .modal-body .quick-product-fields {grid-template-columns:minmax(0,1fr);}
+  .modal-body .quick-product-actions {flex-direction:column;align-items:stretch;}
+  .modal-body .quick-product-actions > .btn {width:100%;}
+}

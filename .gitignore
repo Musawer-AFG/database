@@ -1,5 +1,15 @@
-node_modules/
-dist/
-.vercel/
-.env
-.env.*
+**/node_modules/
+**/dist/
+**/.vite/
+**/.env
+**/.env.*
+!**/.env.example
+**/.vercel/
+**/coverage/
+.DS_Store
+# Database dumps and private uploads
+**/backups/*
+!**/backups/.gitkeep
+**/*.dump
+**/*.backup
+**/uploads/

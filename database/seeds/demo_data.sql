@@ -1,0 +1,2 @@
+-- Optional reference seed. No financial or identity data inserted.
+-- Populate test records through authenticated backend services only.
