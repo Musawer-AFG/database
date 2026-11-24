@@ -1,6 +1,7 @@
 // Shipment, counterparty and double-entry calculations for the LOCAL React prototype.
 // No imported workbook row is posted automatically; balances remain AFN-based.
 import { afghanDateOrder, cash, findProduct, payrollAmounts } from './business.js';
+import { quoteUnits } from '../utils/currency.js';
 import { fifoStock } from './stockLots.js';
 
 export const TRADE_CURRENCIES = Object.freeze(['AFN','USD','PKR','AED','EUR']);
@@ -16,7 +17,7 @@ export function convertTradeAmount(amount,currency='AFN',rate=1) {
   if(!TRADE_CURRENCIES.includes(currency)) throw Error('واحد پول معتبر نیست.');
   const r=currency==='AFN'?1:num(rate);
   if(!Number.isFinite(r)||r<=0||r>1000000) throw Error(`نرخ تبدیل ${currency} به افغانی را درج کنید.`);
-  return cash(n*r);
+  return cash(n*r/quoteUnits(currency));
 }
 
 export function createShipment(form, data) {
@@ -81,7 +82,7 @@ export function applySettlement(data, entry) {
       if(String(inv.id)!==String(entry.invoiceId)) return inv;
       const balance=cash(Math.max(0,Number(inv.balance||0)-entry.afn));
       return {...inv,paid:cash(Number(inv.paid||0)+entry.afn),balance,status:balance===0?'پرداخت کامل':'پرداخت ناقص',payments:[...(inv.payments||[]),{
-        id:entry.id,date:entry.date,amount:entry.afn,sourceAmount:entry.amount,currency:entry.currency,exchangeRate:entry.rate,notes:entry.notes,viaCash:entry.viaCash,thirdParty:entry.thirdParty
+        id:entry.id,date:entry.date,amount:entry.afn,sourceAmount:entry.amount,currency:entry.currency,exchangeRate:entry.rate/quoteUnits(entry.currency),notes:entry.notes,viaCash:entry.viaCash,thirdParty:entry.thirdParty
       }]};
     })};
   }
@@ -99,12 +100,12 @@ export function partyStatement(data,partyType,party) {
     const subsequent=(inv.payments||[]).reduce((s,p)=>s+Number(p.amount||0),0);
     const initial=cash(Number(inv.paid||0)-subsequent);
     if(initial>0) add(`initial-${inv.id}`,inv.date,'پرداخت هنگام صدور بل',partyType==='supplier'?initial:0,partyType==='customer'?initial:0,source,inv.foreignPaid,inv.id);
-    for(const p of inv.payments||[]) add(`p-${inv.id}-${p.id}`,p.date,`تسویه بل #${inv.number||inv.id}${p.thirdParty?' توسط '+p.thirdParty:''}`,partyType==='supplier'?p.amount:0,partyType==='customer'?p.amount:0,p.currency,p.sourceAmount,inv.id);
+    for(const p of inv.payments||[]) add(`p-${inv.id}-${p.id}`,p.date,`تصفیه حساب بل #${inv.number||inv.id}${p.thirdParty?' توسط '+p.thirdParty:''}`,partyType==='supplier'?p.amount:0,partyType==='customer'?p.amount:0,p.currency,p.sourceAmount,inv.id);
   }
   for(const s of data.settlements||[]) if(s.partyType===partyType && s.party===party) {
     const debit=s.kind==='pay'||s.kind==='debit'?s.afn:0;
     const credit=s.kind==='receive'||s.kind==='credit'?s.afn:0;
-    add(`s-${s.id}`,s.date,`${s.kind==='receive'?'دریافت علی‌الحساب':s.kind==='pay'?'پرداخت علی‌الحساب':s.kind==='debit'?'اصلاح بدهکار':'اصلاح بستانکار'}${s.thirdParty?' — '+s.thirdParty:''}${s.notes?' — '+s.notes:''}`,debit,credit,s.currency,s.amount,s.id);
+    add(`s-${s.id}`,s.date,`${s.kind==='receive'?'دریافت علی‌الحساب':s.kind==='pay'?'پرداخت علی‌الحساب':s.kind==='debit'?'اصلاح دبیت':'اصلاح کریدیت'}${s.thirdParty?' — '+s.thirdParty:''}${s.notes?' — '+s.notes:''}`,debit,credit,s.currency,s.amount,s.id);
   }
   // Stable date order, irrespective of original invoice insertion order.
   lines.sort((a,b)=>afghanDateOrder(a.date)-afghanDateOrder(b.date)||a.id.localeCompare(b.id));
@@ -119,7 +120,7 @@ export function averageLandedCosts(data) {
   for(const inv of data.invoices||[]) if(inv.type==='purchase') {
     const ship=(data.shipments||[]).find(s=>String(s.purchaseInvoiceId)===String(inv.id));
     const extra=ship?shipmentCost(data,ship).additional:0;
-    const lines=(inv.items||[]).map(item=>({item,p:findProduct(item,data.products||[]),line:Math.max(0,Number(item.price||0)*Number(item.quantity||0)-Number(item.discount||0))}));
+    const lines=(inv.items||[]).map(item=>({item,p:findProduct(item,data.products||[]),line:Math.max(0,Number(item.lineTotalAfn??(Number(item.price||0)*Number(item.quantity||0)))-Number(item.discount||0))}));
     const subtotal=lines.reduce((s,l)=>s+l.line,0);
     for(const {item,p,line} of lines) if(p && Number(item.quantity)>0) {
       const ratio=subtotal>0?line/subtotal:1/lines.length;
@@ -180,8 +181,8 @@ export function buildAccountingJournal(data,openingCash=0) {
     else if(sign==='return') post(`auto-return-${inv.id}`,inv.date,`برگشتی #${inv.number||inv.id}`,[row('برگشتی فروشات',inv.total,0),row('صندوق نقدی',0,paidAt),row('حساب‌های دریافتنی',0,balance)]);
     for(const p of inv.payments||[]) {
       const amount=cash(p.amount);
-      if(sign==='sale') post(`auto-payment-${inv.id}-${p.id}`,p.date,`دریافت بل فروش #${inv.number||inv.id}`,[row(p.viaCash===false?'تسویه خارج از صندوق':'صندوق نقدی',amount,0),row('حساب‌های دریافتنی',0,amount)]);
-      else if(sign==='purchase') post(`auto-payment-${inv.id}-${p.id}`,p.date,`پرداخت بل خرید #${inv.number||inv.id}`,[row('حساب‌های پرداختنی',amount,0),row(p.viaCash===false?'تسویه خارج از صندوق':'صندوق نقدی',0,amount)]);
+      if(sign==='sale') post(`auto-payment-${inv.id}-${p.id}`,p.date,`دریافت بل فروش #${inv.number||inv.id}`,[row(p.sarrafId?`حساب صراف — ${p.thirdParty} (${p.sarrafId})`:p.viaCash===false?'تسویه خارج از صندوق':'صندوق نقدی',amount,0),row('حساب‌های دریافتنی',0,amount)]);
+      else if(sign==='purchase') post(`auto-payment-${inv.id}-${p.id}`,p.date,`پرداخت بل خرید #${inv.number||inv.id}`,[row('حساب‌های پرداختنی',amount,0),row(p.sarrafId?`حساب صراف — ${p.thirdParty} (${p.sarrafId})`:p.viaCash===false?'تسویه خارج از صندوق':'صندوق نقدی',0,amount)]);
     }
   }
   for(const sh of data.shipments||[]) for(const c of sh.costs||[]) {
@@ -199,8 +200,13 @@ export function buildAccountingJournal(data,openingCash=0) {
     const clearing=s.viaCash?'صندوق نقدی':'تسویه خارج از صندوق';
     if(s.kind==='receive') post(`auto-settlement-${s.id}`,s.date,`دریافت علی‌الحساب ${s.party}`,[row(clearing,amount,0),row('حساب‌های دریافتنی',0,amount)]);
     if(s.kind==='pay') post(`auto-settlement-${s.id}`,s.date,`پرداخت علی‌الحساب ${s.party}`,[row('حساب‌های پرداختنی',amount,0),row(clearing,0,amount)]);
-    if(s.kind==='debit') post(`auto-settlement-${s.id}`,s.date,`اصلاح بدهکار ${s.party}`,[row(s.partyType==='supplier'?'حساب‌های پرداختنی':'حساب‌های دریافتنی',amount,0),row('تسویه اصلاح حسابات',0,amount)]);
-    if(s.kind==='credit') post(`auto-settlement-${s.id}`,s.date,`اصلاح بستانکار ${s.party}`,[row('تسویه اصلاح حسابات',amount,0),row(s.partyType==='supplier'?'حساب‌های پرداختنی':'حساب‌های دریافتنی',0,amount)]);
+    if(s.kind==='debit') post(`auto-settlement-${s.id}`,s.date,`اصلاح دبیت ${s.party}`,[row(s.partyType==='supplier'?'حساب‌های پرداختنی':'حساب‌های دریافتنی',amount,0),row('تسویه اصلاح حسابات',0,amount)]);
+    if(s.kind==='credit') post(`auto-settlement-${s.id}`,s.date,`اصلاح کریدیت ${s.party}`,[row('تسویه اصلاح حسابات',amount,0),row(s.partyType==='supplier'?'حساب‌های پرداختنی':'حساب‌های دریافتنی',0,amount)]);
+  }
+  for(const t of data.sarrafTransactions||[]) {
+    const account=`حساب صراف — ${t.sarrafName} (${t.sarrafId})`;
+    if(t.kind==='deposit') post(`sarraf-${t.id}`,t.date,`تحویل پول به صراف ${t.sarrafName}`,[row(account,t.afn,0),row('صندوق نقدی',0,t.afn)]);
+    if(t.kind==='withdraw') post(`sarraf-${t.id}`,t.date,`دریافت پول از صراف ${t.sarrafName}`,[row('صندوق نقدی',t.afn,0),row(account,0,t.afn)]);
   }
   for(const j of data.journals||[]) post(`manual-${j.id}`,j.date,j.name||'سند دستی',j.rows||[]);
   entries.sort((a,b)=>afghanDateOrder(a.date)-afghanDateOrder(b.date)||String(a.id).localeCompare(String(b.id)));

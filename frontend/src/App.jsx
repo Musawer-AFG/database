@@ -84,7 +84,7 @@ import { makeDemoCredential, verifyDemoCredential, normalizeUsername, validUsern
 import { createRecoveryCode, createRecoveryRecord, verifyRecoveryCode } from "./services/demoRecovery.js";
 import { quickSearch, transactionsForDay } from "./services/headerTools.js";
 import { employeeAccess, effectiveDemoAccess, kabulLocalDateTime, normalizeScheduleFields, validAfghanDateTime, validShiftTime } from "./services/workHours.js";
-import { CURRENCIES, CURRENCY_LABELS, DEFAULT_RATES, normalizeRates, currencyRate, toAfn, fromAfn, roundMoney, convertInvoiceToAfn, rateFieldFor } from "./utils/currency.js";
+import { CURRENCIES, CURRENCY_LABELS, DEFAULT_RATES, normalizeRates, currencyRate, toAfn, fromAfn, roundMoney, convertInvoiceToAfn, rateFieldFor, quoteUnits, quoteLabel, upgradeInvoiceQuote } from "./utils/currency.js";
 import { FRESH_STORAGE_KEYS, validateFirstSetup, clearFreshStorage } from "./services/freshSetup.js";
 import { readBusinessLogo, safeBusinessLogo } from "./utils/businessLogo.js";
 import { totalExtras, validateExtras, newExtraExpense } from "./services/invoiceExtras.js";
@@ -93,6 +93,7 @@ import { cashRegister, canAffordCash, buildManualCashEntry } from "./services/ca
 import { ATTENDANCE_OPTIONS, attendanceKey, attendanceDays, attendanceTotals, recordAttendance, resolvedAttendance, attendanceOverview, attendanceOverviewForDates } from "./services/attendanceLogic.js";
 import { THEME_PRESETS, themeColors, normalizeAppearance, addCustomColor, validHex } from "./utils/themePalette.js";
 import { saveIdentityScan, loadIdentityScan, removeIdentityScan, clearIdentityScans } from "./offline/idDocuments.js";
+import { SarrafPage } from "./pages/Accounting/SarrafPage.jsx";
 import { createShipment, shipmentCost, createSettlement, applySettlement, buildAccountingJournal, profitSummary } from "./services/tradeAccounting.js";
 import { eligibleWarehouseManagers, selectedWarehouseManagerId, warehouseManagerLabel, warehouseWithAssignedManager } from "./services/warehouseManagers.js";
 import { emptyPurchaseProduct, createPurchaseCatalogProduct } from "./services/purchaseProductCatalog.js";
@@ -168,9 +169,11 @@ const navGroups = [
     icon: BookOpen,
     items: [
       { id: "financialOverview", label: "خلاصه مالی" },
+      { id: "journalReport", label: "روزنامچه" },
+      { id: "sarrafs", label: "صرافان" },
       { id: "cashRegister", label: "صندوق نقدی" },
       { id: "debtors", label: "طلبات مشتریان" },
-      { id: "traderAccounts", label: "قرض‌های عرضه‌کنندگان" },
+      { id: "traderAccounts", label: "کهاته" },
       { id: "expenses", label: "مصارف" },
     ],
   },
@@ -208,7 +211,7 @@ const navGroups = [
     items: [
       { id: "customersDashboard", label: "داشبورد ارتباط با مشتری" },
       { id: "customers", label: "مشتریان" },
-      { id: "debtors", label: "مشتریان بدهکار" },
+      { id: "debtors", label: "مشتریان قرضدار" },
       { id: "suppliers", label: "عرضه‌کنندگان" },
     ],
   },
@@ -218,7 +221,7 @@ const navGroups = [
     items: [{ id: "settings", label: "تنظیمات" }, { id: "roles", label: "نقش‌ها و صلاحیت‌ها" }],
   },
 ];
-const allNavItems = [...navGroups.flatMap((g) => g.items), {id:"help",label:"راهنمای سامانه"},{id:"profile",label:"پروفایل کاربر"}];
+const allNavItems = [...navGroups.flatMap((g) => g.items), {id:"help",label:"راهنمای سیستم"},{id:"profile",label:"پروفایل کاربر"}];
 const navigationIcons = {
   dashboard: LayoutDashboard,
   financialOverview: ChartPie,
@@ -230,6 +233,7 @@ const navigationIcons = {
   expenses: Wallet,
   cashRegister: CircleDollarSign,
   traderAccounts: ArrowLeftRight,
+  sarrafs: ArrowLeftRight,
   shipments: Warehouse,
   profitAnalysis: TrendingUp,
   reports: FileBarChart,
@@ -258,7 +262,7 @@ const entityConfigs = {
     description: "اجناس و موجودی گدام خود را مدیریت کنید",
     add: "ایجاد محصول",
     fields: [
-      ["code", "کد محصول"],
+      ["code", "کود محصول"],
       ["name", "نام محصول"],
       ["sstid", "شناسه SSTID محصول"],
       ["group", "گروه محصول"],
@@ -268,10 +272,10 @@ const entityConfigs = {
       ["cost", "بهای تمام‌شده (AFN)"],
       ["price", "قیمت فروش (AFN)"],
       ["tax", "مالیات محصول (%)"],
-      ["reorder", "نقطه سفارش"],
+      ["reorder", "حداقل موجودی برای خرید"],
     ],
     columns: [
-      ["code", "کد"],
+      ["code", "کود"],
       ["name", "نام محصول"],
       ["group", "گروه"],
       ["unit", "واحد"],
@@ -287,15 +291,15 @@ const entityConfigs = {
     add: "ایجاد گروه محصول",
     fields: [
       ["name", "نام گروه"],
-      ["inventoryAccount", "سرفصل موجودی اجناس"],
-      ["salesAccount", "سرفصل درآمد"],
-      ["returnAccount", "سرفصل فروش برگشتی"],
+      ["inventoryAccount", "عنوان حساب موجودی اجناس"],
+      ["salesAccount", "عنوان حساب درآمد"],
+      ["returnAccount", "عنوان حساب فروش برگشتی"],
       ["cogsAccount", "موضوع بهای تمام‌شده"],
     ],
     columns: [
       ["name", "نام گروه"],
-      ["inventoryAccount", "سرفصل موجودی"],
-      ["salesAccount", "سرفصل درآمد"],
+      ["inventoryAccount", "عنوان حساب موجودی"],
+      ["salesAccount", "عنوان حساب درآمد"],
     ],
   },
   customers: {
@@ -303,7 +307,7 @@ const entityConfigs = {
     description: "مشتریان و حساب‌های آن‌ها را مدیریت کنید",
     add: "ایجاد مشتری",
     fields: [
-      ["code", "کد حسابداری"],
+      ["code", "کود حسابداری"],
       ["name", "نام مشتری"],
       ["type", "نوع"],
       ["economicNumber", "نمبر مالیاتی (TIN) — اختیاری"],
@@ -319,7 +323,7 @@ const entityConfigs = {
       ["notes", "یادداشت"],
     ],
     columns: [
-      ["code", "کد حسابداری"],
+      ["code", "کود حسابداری"],
       ["name", "نام مشتری"],
       ["type", "نوع"],
       ["economicNumber", "نمبر مالیاتی (TIN)"],
@@ -334,7 +338,7 @@ const entityConfigs = {
     description: "عرضه‌کنندگان و حساب‌های پرداختنی را مدیریت کنید",
     add: "ایجاد عرضه‌کننده",
     fields: [
-      ["code", "کد حسابداری"],
+      ["code", "کود حسابداری"],
       ["name", "نام عرضه‌کننده"],
       ["economicNumber", "نمبر مالیاتی (TIN) — اختیاری"],
       ["phone", "نمبر تیلفون"],
@@ -346,7 +350,7 @@ const entityConfigs = {
       ["notes", "یادداشت"],
     ],
     columns: [
-      ["code", "کد"],
+      ["code", "کود"],
       ["name", "نام عرضه‌کننده"],
       ["economicNumber", "نمبر مالیاتی (TIN)"],
       ["phone", "نمبر تیلفون"],
@@ -359,19 +363,19 @@ const entityConfigs = {
     description: "گدام‌ها و محل نگهداری اجناس را مدیریت کنید",
     add: "ایجاد گدام",
     fields: [
-      ["code", "کد گدام"],
+      ["code", "کود گدام"],
       ["name", "نام گدام"],
       ["province", "ولایت"],
       ["district", "ولسوالی / ناحیه"],
       ["location", "آدرس گدام"],
-      ["manager", "مسؤول گدام"],
+      ["manager", "مسوول گدام"],
       ["status", "وضعیت"],
     ],
     columns: [
-      ["code", "کد"],
+      ["code", "کود"],
       ["name", "نام گدام"],
       ["location", "موقعیت"],
-      ["manager", "مسؤول"],
+      ["manager", "مسوول"],
       ["quantity", "تعداد موجودی"],
       ["status", "وضعیت"],
     ],
@@ -381,7 +385,7 @@ const entityConfigs = {
     description: "اعضای سازمان خود را مدیریت کنید",
     add: "افزودن کارمند",
     fields: [
-      ["employeeCode", "کد کارمند"],
+      ["employeeCode", "کود کارمند"],
       ["firstName", "نام"],
       ["lastName", "تخلص"],
       ["fatherName", "نام پدر"],
@@ -397,7 +401,7 @@ const entityConfigs = {
       ["district", "ولسوالی / ناحیه"],
       ["address", "آدرس"],
       ["unit", "واحد سازمانی"],
-      ["position", "جایگاه وظیفوی"],
+      ["position", "بست وظیفوی"],
       ["workshop", "شعبه / محل کار"],
       ["shift", "شیفت کاری"],
       ["contract", "نوع قرارداد"],
@@ -408,31 +412,31 @@ const entityConfigs = {
       ["status", "وضعیت"],
     ],
     columns: [
-      ["employeeCode", "کد کارمند"],
+      ["employeeCode", "کود کارمند"],
       ["firstName", "نام"],
       ["lastName", "تخلص"],
-      ["position", "جایگاه وظیفوی"],
+      ["position", "بست وظیفوی"],
       ["unit", "واحد سازمانی"],
-      ["phone", "شماره تیلفون"],
+      ["phone", "نمبر تیلفون"],
       ["status", "وضعیت"],
     ],
   },
   accounts: {
-    title: "سرفصل‌های حساب",
-    description: "کدها و سرفصل‌های حسابداری",
-    add: "ایجاد سرفصل",
+    title: "عنوان‌های حساب",
+    description: "کودها و عنوان‌های حسابداری",
+    add: "ایجاد عنوان حساب",
     fields: [
-      ["code", "کد سرفصل"],
-      ["name", "نام سرفصل"],
+      ["code", "کود حساب"],
+      ["name", "نام حساب"],
       ["type", "نوع حساب"],
-      ["parent", "سرفصل مادر"],
+      ["parent", "حساب مادر"],
       ["status", "وضعیت"],
     ],
     columns: [
-      ["code", "کد"],
-      ["name", "نام سرفصل"],
+      ["code", "کود"],
+      ["name", "نام حساب"],
       ["type", "نوع حساب"],
-      ["parent", "سرفصل مادر"],
+      ["parent", "حساب مادر"],
       ["status", "وضعیت"],
     ],
   },
@@ -455,6 +459,8 @@ const initialData = {
   cashEntries: [],
   shipments: [],
   settlements: [],
+  sarrafs: [],
+  sarrafTransactions: [],
 };
 function loadInitial() {
   try {
@@ -476,6 +482,7 @@ function loadInitial() {
         Object.entries(record).filter(([field]) => employeeFields.has(field)),
       ),
     );
+    result.invoices = result.invoices.map(upgradeInvoiceQuote);
     return result;
   } catch {
     return initialData;
@@ -705,7 +712,7 @@ function App() {
       }
       // Recheck that the signed-in user has not changed during verification.
       if (sessionUserId!==currentAccount.id || !can('settings.manage')) {
-        return {ok:false,message:'نشست کاربری تغییر کرده است. دوباره وارد شوید.'};
+        return {ok:false,message:'جلسهٔ ورود تغییر کرده است. دوباره وارد شوید.'};
       }
       // Close first, then apply the authorized operation (which may reload).
       setSettingsChallenge(null);
@@ -812,7 +819,7 @@ function App() {
       const normalized = {...record,name:employee ? [employee.firstName,employee.lastName].filter(Boolean).join(' ').trim():record.name,
         title:employee?.position||record.title};
       if(!normalized.employeeId) throw Error('ابتدا یک کارمند از فهرست انتخاب کنید.');
-      if(!validUsername(normalized.username)) throw Error('نام کاربری حداقل ۳ حرف انگلیسی دارد؛ فقط حروف، عدد و . _ - مجاز است.');
+      if(!validUsername(normalized.username)) throw Error('نام کاربر حداقل ۳ حرف انگلیسی دارد؛ فقط حروف، عدد و . _ - مجاز است.');
       if(!normalized.id && !rawPassword) throw Error('برای کاربر جدید رمز موقت تعیین کنید.');
       if(rawPassword) Object.assign(normalized,await makeDemoCredential(rawPassword),{mustChangePassword:true});
       const next=saveUserRecord(access,normalized);
@@ -829,7 +836,7 @@ function App() {
       if (initialProfile && !demoLoginEnabled) {
         const adminName=String(initialProfile.adminName||'').trim().slice(0,80);
         const shopName=String(initialProfile.shopName||'').trim().slice(0,90);
-        if(!adminName || !shopName) throw Error('نام فروشگاه و نام مدیر ضروری است.');
+        if(!adminName || !shopName) throw Error('نام دکان و نام مدیر ضروری است.');
         next={...next,users:next.users.map(u=>u.id==='admin-user'?{...u,name:adminName,title:'مدیر سیستم'}:u)};
         const openingCash=Number(initialProfile.openingCash||0);
         if(!Number.isFinite(openingCash) || openingCash<0) throw Error('موجودی آغازین صندوق باید صفر یا بیشتر باشد.');
@@ -845,7 +852,7 @@ function App() {
         setSessionUserId(null);
         setSetupResult({username,recoveryCode});
       }
-      notify('حساب مدیر ساخته شد. کد بازیابی را در جای امن نگه دارید.');
+      notify('حساب مدیر ساخته شد. کود بازگردانی را در جای امن نگه دارید.');
       return {ok:true,recoveryCode};
     } catch(error) {notify(error.message);return {ok:false,message:error.message};}
   };
@@ -857,7 +864,7 @@ function App() {
       const code=createRecoveryCode();
       const record=await createRecoveryRecord(code,{days:user.system?365:1});
       setAccess(previous=>setRecoveryRecord(previous,userId,record));
-      notify('کد بازیابی ساخته شد. فقط به صاحب حساب بدهید.');
+      notify('کود بازگردانی ساخته شد. فقط به صاحب حساب بدهید.');
       return {username:user.username,code,expires:record.recoveryExpires};
     } catch(error) {notify(error.message);return null;}
   };
@@ -880,7 +887,7 @@ function App() {
   };
   const login=async (username,password) => {
     const u=access.users.find(u=>u.active!==false&&normalizeUsername(u.username)===normalizeUsername(username));
-    if(!u || !await verifyDemoCredential(password,u)) return {ok:false,message:'نام کاربری یا رمز اشتباه است، یا حساب غیرفعال شده است.'};
+    if(!u || !await verifyDemoCredential(password,u)) return {ok:false,message:'نام کاربر یا رمز اشتباه است، یا حساب غیرفعال شده است.'};
     const status=employeeAccess(u);
     if(!status.allowed) return {ok:false,message:`${status.reason} وقت فعلی افغانستان: ${kabulLocalDateTime(new Date()).replace('T',' ')}`};
     sessionStorage.setItem(FRESH_STORAGE_KEYS.session,u.id);
@@ -911,7 +918,7 @@ function App() {
     const first=availablePages(access,userId).find(page=>page!=='profile' && page!=='help') || 'profile';
     setPage(first);
     setModal(null); setMobileMenu(false); setSidebarPopup('');
-    notify('حالت پیش‌نمایش نقش فعال شد؛ این ورود واقعی نیست.');
+    notify('حالت نمایش آزمایشی نقش فعال شد؛ این ورود واقعی نیست.');
   };
   const leavePreview = () => {
     setPreviewUserId(null); setPage('roles'); setModal(null); setMobileMenu(false);
@@ -973,7 +980,7 @@ function App() {
     if (key === 'employees' && editId && data.warehouses.some(w=>String(w.managerEmployeeId||'')===String(editId))) {
       const eligible = eligibleWarehouseManagers(data.employees.map(employee=>String(employee.id)===String(editId)?entry:employee),access);
       if (!eligible.some(employee=>String(employee.id)===String(editId))) {
-        notify('این کارمند مسوول گدام است. ابتدا مسوول گدام مربوط را تغییر دهید، بعد جایگاه وظیفوی یا وضعیت کارمند را تبدیل کنید.');
+        notify('این کارمند مسوول گدام است. ابتدا مسوول گدام مربوط را تغییر دهید، بعد بست وظیفوی یا وضعیت کارمند را تبدیل کنید.');
         return;
       }
     }
@@ -1048,7 +1055,7 @@ function App() {
   function openEditInvoice(invoice) {
     if(!invoice || !requirePermission(INVOICE_PERMISSIONS[invoice.type]?.edit)) return;
     if((invoice.payments||[]).length || (invoice.type==='purchase'&&(data.shipments||[]).some(sh=>String(sh.purchaseInvoiceId)===String(invoice.id)))) {
-      notify('این بل دارای پرداخت بعدی یا محمولهٔ مرتبط است؛ برای حفظ حسابات، ویرایش مستقیم آن بسته است.');return;
+      notify('این بل دارای پرداخت بعدی یا محمولهٔ مرتبط است؛ برای حفظ حسابات، اصلاح مستقیم آن بسته است.');return;
     }
     const code=invoice.currency||'AFN';
     const rate=Number(invoice.exchangeRate)||1;
@@ -1069,11 +1076,11 @@ function App() {
   function saveInvoice(e) {
     e.preventDefault();
     const editingInvoice=modal.invoiceId!=null ? data.invoices.find(x=>String(x.id)===String(modal.invoiceId) && x.type===modal.invoiceType) : null;
-    if(modal.invoiceId!=null && !editingInvoice){notify('بل برای ویرایش یافت نشد.');return;}
+    if(modal.invoiceId!=null && !editingInvoice){notify('بل برای اصلاح یافت نشد.');return;}
     if(!requirePermission(INVOICE_PERMISSIONS[modal.invoiceType]?.[editingInvoice?'edit':'create'])) return;
     if(editingInvoice && ((editingInvoice.payments||[]).length ||
       (editingInvoice.type==='purchase'&&(data.shipments||[]).some(sh=>String(sh.purchaseInvoiceId)===String(editingInvoice.id))))) {
-      notify('ویرایش این بل به دلیل پرداخت بعدی یا ارتباط محموله مجاز نیست.');return;
+      notify('اصلاح این بل به دلیل پرداخت بعدی یا ارتباط محموله مجاز نیست.');return;
     }
     if (!invoiceItems.length) { notify("حداقل یک قلم در بل اضافه کنید."); return; }
     if (!invoiceItems.every(i => String(i.product||'').trim() && i.price!=='' && i.price!=null && Number.isFinite(Number(i.price)) && Number.isFinite(Number(i.quantity)) && Number(i.quantity) > 0 && Number(i.price) >= 0 && Number.isFinite(Number(i.discount || 0)) && Number(i.discount || 0) >= 0 && Number(i.discount || 0) <= Number(i.quantity) * Number(i.price))) {
@@ -1141,7 +1148,7 @@ function App() {
         Math.max(0,...data.invoices.filter(x=>x.type===modal.invoiceType).map(x=>Number(x.number)||0))+1,
       type: modal.invoiceType,
       ...invoiceForm,
-      currency:invoiceForm.currency||'AFN',exchangeRate:converted.rate,
+      currency:invoiceForm.currency||'AFN',exchangeRate:converted.rate,fxQuoteVersion:2,
       usdRate:Number(invoiceForm.usdRate||0),pkrRate:Number(invoiceForm.pkrRate||0),aedRate:Number(invoiceForm.aedRate||0),eurRate:Number(invoiceForm.eurRate||0),
       extraExpenses:converted.extraExpenses,extraExpensesTotal:converted.extraExpensesTotal,
       lineSubtotal:converted.lineSubtotal,
@@ -1158,14 +1165,14 @@ function App() {
     else if(customerContract) invoice.saleContract=customerContract;
     if(editingInvoice){
       // Prevent historical changes that would make cash or stock impossible.
-      if(Math.abs(Number(editingInvoice.paid||0)-initialPaid)>0.01){notify('برای حفظ صندوق، مبلغ قبلاً پرداخت‌شده در ویرایش بل قابل تغییر نیست.');return;}
+      if(Math.abs(Number(editingInvoice.paid||0)-initialPaid)>0.01){notify('برای حفظ صندوق، مبلغ قبلاً پرداخت‌شده در اصلاح بل قابل تغییر نیست.');return;}
       const proposed={...data,invoices:data.invoices.map(x=>x.id===editingInvoice.id?invoice:x)};
       const oldPositions=inventoryState(data).positions;
       for(const [key,amount] of inventoryState(proposed).positions){
         if(amount < -0.000001 && amount < (oldPositions.get(key)||0)-0.000001){notify('این تغییر موجودی گدام را منفی می‌کند.');return;}
       }
       setData(prev=>({...prev,invoices:prev.invoices.map(x=>x.id===editingInvoice.id?invoice:x)}));
-      setModal(null);notify('ویرایش بل ثبت شد.');return;
+      setModal(null);notify('اصلاح بل ثبت شد.');return;
     }
     setData((prev) => ({ ...prev, invoices: [invoice, ...prev.invoices] }));
     setModal(null);
@@ -1184,6 +1191,7 @@ function App() {
   }
   function deleteInvoice(id) {
     const existing = data.invoices.find(x => x.id === id);
+    if(existing?.payments?.some(p=>p.sarrafId)){notify("این بل دارای حواله صراف است و حذف آن مجاز نیست.");return;}
     if(existing?.type==='purchase' && (data.shipments||[]).some(sh=>String(sh.purchaseInvoiceId)===String(id))) {notify('نخست محموله مربوط به این بل خرید را بررسی یا حذف کنید.');return;}
     if(!existing || !requirePermission(INVOICE_PERMISSIONS[existing.type]?.delete)) return;
     if (!existing) return;
@@ -1293,17 +1301,17 @@ function App() {
     if (data.payroll.some(x => String(x.employeeId) === String(employee.id) && (record.periodGregorian
         ? x.periodGregorian===record.periodGregorian
         : !x.periodGregorian && Number(x.year) === year && Number(x.month) === month))) {
-      notify("برای این کارمند در ماه انتخاب‌شده برگه معاش موجود است."); return;
+      notify("برای این کارمند در ماه انتخاب‌شده فورم معاش موجود است."); return;
     }
     const amounts = payrollAmounts(record);
     setData(prev => ({ ...prev, payroll: [{ ...record, ...amounts, year, month, employeeName: [employee.firstName, employee.lastName].filter(Boolean).join(" "),
       unit: employee.unit || "—", status: "draft", id: Date.now() }, ...prev.payroll] }));
-    setModal(null); notify("برگه معاش ثبت شد.");
+    setModal(null); notify("فورم معاش ثبت شد.");
   }
   function markPayrollPaid(id) {
     if(!requirePermission("payroll.pay")) return;
     const slip=data.payroll.find(x=>x.id===id);
-    if(!slip || slip.status==='paid') {notify('این برگه قبلاً پرداخت شده است.');return;}
+    if(!slip || slip.status==='paid') {notify('این فورم قبلاً پرداخت شده است.');return;}
     if(!canAffordCash(data,preferences.openingCash,payrollAmounts(slip).net)) {
       notify('موجودی صندوق برای پرداخت معاش کافی نیست.');return;
     }
@@ -1313,9 +1321,9 @@ function App() {
   function deletePayroll(id) {
     if(!requirePermission('payroll.delete')) return;
     const record = data.payroll.find(x => x.id === id);
-    if (record?.status === "paid") { notify("برگه پرداخت‌شده را نمی‌توان حذف کرد."); return; }
+    if (record?.status === "paid") { notify("فورم پرداخت‌شده را نمی‌توان حذف کرد."); return; }
     setData(prev => ({ ...prev, payroll: prev.payroll.filter(x => x.id !== id) }));
-    notify("برگه معاش حذف شد.");
+    notify("فورم معاش حذف شد.");
   }
   function openJournal() {
     if(!requirePermission("accounting.manage")) return;
@@ -1329,7 +1337,7 @@ function App() {
     const debit = journalItems.reduce((s, x) => s + Number(x.debit || 0), 0);
     const credit = journalItems.reduce((s, x) => s + Number(x.credit || 0), 0);
     if (!journalItems.length || debit <= 0 || cash(debit) !== cash(credit) || journalItems.some(r => !String(r.account || "").trim() || (Number(r.debit||0)>0 && Number(r.credit||0)>0))) {
-      notify("سند باید حداقل دو حساب و مجموع بدهکار و بستانکار مساوی داشته باشد."); return;
+      notify("سند باید حداقل دو حساب و مجموع دبیت و کریدیت مساوی داشته باشد."); return;
     }
     const entry = {
       id: Date.now(),
@@ -1432,7 +1440,7 @@ function App() {
     if(entry.viaCash&&entry.kind==='pay'&&!canAffordCash(data,preferences.openingCash,entry.afn))
       throw Error('موجودی صندوق برای این پرداخت کافی نیست.');
     setData(prev=>applySettlement(prev,entry));
-    notify(entry.invoiceId?'پرداخت و مانده بل به‌روز شد.':'تسویه علی‌الحساب ثبت شد.'); return true;
+    notify(entry.invoiceId?'پرداخت و مانده بل به‌روز شد.':'تصفیه حساب علی‌الحساب ثبت شد.'); return true;
   }
 
   function renderPage() {
@@ -1454,7 +1462,8 @@ function App() {
     if(page==='financialOverview')
       return <FinancialOverviewPage data={data} openingCash={preferences.openingCash} onNavigate={setCurrentPage} onOpenDebtors={()=>setCurrentPage('debtors')} onOpenSuppliers={()=>setCurrentPage('traderAccounts')} can={can} />;
     if(page==='shipments') return <ShipmentsPage data={data} onAdd={can('purchases.manage')?saveShipmentFromForm:null} onDelete={can('inventory.delete')?removeShipmentRecord:null}/>;
-    if(page==='traderAccounts') return <TraderAccountsPage data={data} onAdd={can('accounting.manage')?addTraderSettlement:null}/>;
+    if(page==='sarrafs') return <SarrafPage data={data} preferences={preferences} setData={setData} openingCash={preferences.openingCash} canManage={can('accounting.manage')} notify={notify} DatePicker={AfghanDatePicker}/>;
+    if(page==='traderAccounts') return <TraderAccountsPage data={data} preferences={preferences} onAdd={can('accounting.manage')?addTraderSettlement:null}/>;
     if(page==='profitAnalysis') return <ProfitAnalysisPage data={data}/>;
     if (page === "warehouseDashboard")
       return (
@@ -1542,7 +1551,7 @@ function App() {
       return <FinancialReportsOverview data={data} openingCash={preferences.openingCash}
         fiscalYear={preferences.fiscalYear} onNavigate={setCurrentPage} DatePicker={AfghanDatePicker}/>;
     if (["trialBalance", "journalReport", "ledgerReport", "documentReport"].includes(page))
-      return <ReportsPage page={page} data={data} openingCash={preferences.openingCash} />;
+      return <ReportsPage key={page} page={page} data={data} openingCash={preferences.openingCash} onNavigate={setCurrentPage} onJournal={can('accounting.manage')?openJournal:null} canView={canView}/>;
     if (page === "settings") return <SettingsPage preferences={preferences} years={years} data={data} appearance={appearance} onSaveAppearance={saveAppearance} onSave={savePreferences} onClearTransactions={clearTransactionsProtected} onResetBusiness={resetBusinessProtected} canManage={can('settings.manage')} />;
     if (page === "roles") return <RolesPage access={access} employees={data.employees} demoLoginEnabled={demoLoginEnabled} onActivateDemoLogin={activateDemoLogin} onIssueRecovery={issueRecovery} onSaveRole={saveRole} onDeleteRole={deleteRole} onSaveUser={saveUser} onDeleteUser={deleteUser} onPreviewUser={previewAs} />;
     if (page === "profile") return <ProfilePage preferences={{...preferences,userName:activeUser.name,userTitle:activeUser.title}} onSave={saveProfile} onNavigate={setCurrentPage} canEdit={can('profile.edit')} roleName={activeRole?.name||''} />;
@@ -1583,7 +1592,7 @@ function App() {
             </div>
             <div className="brand-text">
               <strong title={preferences.shopName}>{preferences.shopName}</strong>
-              <small>سامانه مدیریت تجارت</small>
+              <small>سیستم مدیریت تجارت</small>
             </div>
           </button>
           <button
@@ -1682,7 +1691,7 @@ function App() {
           <button type="button" className="sidebar-help sidebar-action" onClick={() => setCurrentPage("help")}>
             <span className="help-icon"><CircleHelp size={17} /></span>
             <span className="sidebar-action-copy">
-              <strong>راهنمای سامانه</strong>
+              <strong>راهنمای سیستم</strong>
               <small>راهنمای بخش‌های برنامه</small>
             </span>
             <ChevronDown size={14} className="help-chevron" />
@@ -1730,7 +1739,7 @@ function App() {
               )}
             </button>
             <div className="topbar-context">
-              <span>سامانه مدیریت عمده‌فروشی افغانستان</span>
+              <span>سیستم مدیریت عمده‌فروشی افغانستان</span>
               <strong>{currentTitle}</strong>
             </div>
           </div>
@@ -1759,7 +1768,7 @@ function App() {
               </div>}
             </div>
             <div className="header-account-wrap" onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget)) setAccountOpen(false)}}>
-              <button type="button" className="user-chip" aria-expanded={accountOpen} aria-label="باز کردن منوی حساب کاربری" title="حساب کاربری، تنظیمات و خروج از حساب" onClick={()=>{setAccountOpen(v=>!v);setCalendarOpen(false);setSearchOpen(false)}}>
+              <button type="button" className="user-chip" aria-expanded={accountOpen} aria-label="باز کردن منوی حساب کاربر" title="حساب کاربر، تنظیمات و خروج از حساب" onClick={()=>{setAccountOpen(v=>!v);setCalendarOpen(false);setSearchOpen(false)}}>
                 <span className="avatar">{activeUser.name.trim().charAt(0) || "ح"}</span>
                 <span>{activeUser.name}</span>
                 <ChevronDown size={15} className={accountOpen?'rotate-chevron':''}/>
@@ -1779,13 +1788,13 @@ function App() {
           <QuickSearchBox mobile search={search} onSearch={setSearch} results={foundItems} onSelect={goToSearchResult} open={searchOpen} setOpen={setSearchOpen}/>
         </div>
         {previewUserId && <div className="role-preview-banner" role="status" dir="rtl">
-          <Eye size={18} /> <span>پیش‌نمایش صلاحیت‌های <strong>{activeUser.name}</strong> — {activeRole?.name}.</span>
+          <Eye size={18} /> <span>نمایش آزمایشی صلاحیت‌های <strong>{activeUser.name}</strong> — {activeRole?.name}.</span>
           <button type="button" className="btn secondary" onClick={leavePreview}>بازگشت به مدیر سیستم</button>
         </div>}
         <main className="main-area">
           <div className="page-toolbar">
             <div>
-              <div className="eyebrow">سامانه یکپارچه مدیریت عمده‌فروشی</div>
+              <div className="eyebrow">سیستم یکپارچه مدیریت عمده‌فروشی</div>
               <h1>{currentTitle}</h1>
             </div>
             <div className="toolbar-right">
@@ -1794,6 +1803,7 @@ function App() {
           </div>
           <Routes>
             <Route path="/" element={<Navigate to={pathForPage('dashboard')} replace />} />
+            <Route path="/reports/ledger" element={<Navigate to={pathForPage('traderAccounts')} replace />} />
             {Object.values(PAGE_PATHS).map(routePath =>
               <Route key={routePath} path={routePath} element={visiblePage} />
             )}
@@ -1801,7 +1811,7 @@ function App() {
           </Routes>
         </main>
         <footer className="app-footer">
-          {preferences.shopName} <span>رابط کاربری React</span>
+          {preferences.shopName} <span>سیستم React</span>
         </footer>
       </div>
       {toast && (
@@ -1820,10 +1830,10 @@ function App() {
           title={
             modal.type === "entity"
               ? editId
-                ? "ویرایش معلومات"
+                ? "اصلاح معلومات"
                 : entityConfigs[modal.key]?.add || "افزودن مورد"
               : modal.type === "invoice"
-                ? (modal.invoiceId!=null?`ویرایش ${invoiceTitle(modal.invoiceType)}`:invoiceTitle(modal.invoiceType))
+                ? (modal.invoiceId!=null?`اصلاح ${invoiceTitle(modal.invoiceType)}`:invoiceTitle(modal.invoiceType))
                 : modal.type === "payment"
                   ? (data.invoices.find(x=>x.id===modal.invoiceId)?.type==='purchase'?'ثبت پرداخت به عرضه‌کننده':'ثبت دریافت پول از مشتری')
                 : modal.type === "journal"
@@ -1954,10 +1964,10 @@ function FinancialOverviewPage({ data, openingCash=0, onNavigate, onOpenDebtors,
     { label: 'قرض‌های عرضه‌کنندگان', value: money(supplierPayable), note: `${number(outstandingPurchaseCount)} بل خرید با مانده`, tone:'amber', icon:ContactRound },
   ];
   return <>
-    <PageHeading title="نمای کلی تجارت" description="سود، فروشات، مصارف، صندوق و طلبات را در یک نگاه ببینید."
+    <PageHeading title="نمای کلی تجارت" description="مفاد، فروشات، مصارف، صندوق و طلبات را در یک نگاه ببینید."
       actions={<div className="heading-actions">
         {can('sales.collect') && <button className="btn secondary" type="button" onClick={onOpenDebtors}><Wallet size={16}/> ثبت دریافت پول</button>}
-        {can('accounting.manage') && <button className="btn primary" type="button" onClick={onOpenSuppliers}><ArrowLeftRight size={16}/> ثبت پرداخت / تسویه</button>}
+        {can('accounting.manage') && <button className="btn primary" type="button" onClick={onOpenSuppliers}><ArrowLeftRight size={16}/> ثبت پرداخت / تصفیه حساب</button>}
       </div>} />
     <div className="qb-overview-shell">
       <Panel title="خلاصه وضعیت تجارت" action={<div className="qb-period-filters" role="tablist" aria-label="انتخاب دورهٔ گزارش">{[
@@ -2004,7 +2014,7 @@ function FinancialOverviewPage({ data, openingCash=0, onNavigate, onOpenDebtors,
         <Panel title="مصارف به تفکیک نوع" action={<button className="text-btn" type="button" onClick={()=>onNavigate('expenses')}>ثبت یا دیدن مصارف</button>}>
           <ExpenseBreakdownChart data={periodData}/>
         </Panel>
-        <Panel title="مطالبات و قرض‌ها" action={<button className="text-btn" type="button" onClick={onOpenDebtors}>دیدن همه</button>}>
+        <Panel title="طلبات و قرض‌ها" action={<button className="text-btn" type="button" onClick={onOpenDebtors}>دیدن همه</button>}>
           <ReceivablePayableSnapshot receivable={receivable} payable={supplierPayable} salesCount={outstandingSalesCount} purchaseCount={outstandingPurchaseCount}/>
         </Panel>
       </div>
@@ -2013,8 +2023,8 @@ function FinancialOverviewPage({ data, openingCash=0, onNavigate, onOpenDebtors,
         <Panel title="تحلیل طلبات مشتریان" action={<button className="text-btn" type="button" onClick={onOpenDebtors}>دیدن طلبات</button>}>
           <DebtAgingChart data={data}/>
         </Panel>
-        <Panel title="لیست طلبات مشتریان" action={<button className="text-btn" type="button" onClick={onOpenDebtors}>همهٔ مشتریان بدهکار</button>}>
-          <DataTable columns={[["name","نام مشتری"],["bill","بل"],["date","تاریخ"],["due","مانده"]]} rows={salesRows} empty="فعلاً هیچ مشتری بدهکار موجود نیست."/>
+        <Panel title="لیست طلبات مشتریان" action={<button className="text-btn" type="button" onClick={onOpenDebtors}>همهٔ مشتریان قرضدار</button>}>
+          <DataTable columns={[["name","نام مشتری"],["bill","بل"],["date","تاریخ"],["due","مانده"]]} rows={salesRows} empty="فعلاً هیچ مشتری قرضدار موجود نیست."/>
         </Panel>
         <Panel title="لیست قرض‌های عرضه‌کنندگان" action={<button className="text-btn" type="button" onClick={onOpenSuppliers}>همهٔ حسابات عرضه‌کنندگان</button>}>
           <DataTable columns={[["name","نام عرضه‌کننده"],["bill","بل"],["date","تاریخ"],["due","مانده"]]} rows={supplierRows} empty="فعلاً هیچ بل خرید باقی‌دار موجود نیست."/>
@@ -2030,7 +2040,7 @@ function FinancialOverviewPage({ data, openingCash=0, onNavigate, onOpenDebtors,
           <button type="button" className="shortcut" onClick={()=>onNavigate('journal')}><BookOpen size={18}/> ثبت سند حسابداری</button>
           <button type="button" className="shortcut" onClick={()=>onNavigate('trialBalance')}><Scale size={18}/> تراز آزمایشی</button>
         </div>
-        <p className="info-note"><strong>راهنمای ساده:</strong> این صفحه مثل QuickBooks Business Overview طراحی شده تا اول سود، فروش، مصارف و صندوق را ببینید؛ بعد اگر لازم بود وارد گزارش‌ها و ابزارهای پیشرفته شوید.</p>
+        <p className="info-note"><strong>راهنمای ساده:</strong> این صفحه مثل QuickBooks Business Overview طراحی شده تا اول مفاد، فروش، مصارف و صندوق را ببینید؛ بعد اگر لازم بود وارد گزارش‌ها و ابزارهای پیشرفته شوید.</p>
       </Panel>
     </div>
   </>;
@@ -2053,7 +2063,7 @@ function BusinessPerformanceChart({data, year}) {
   const totalNet = rows.reduce((sum,row)=>sum+row.net,0);
   return <>
     <div className="insight-legend"><span className="insight-sales-key">فروشات: {money(totalSales)}</span><span className="insight-purchases-key">مصارف: {money(totalCosts)}</span><span className="insight-profit-key">مفاد: {money(totalNet)}</span></div>
-    <div className="insight-chart-scroll" role="region" aria-label="نمودار ماهانهٔ فروش، مصارف و مفاد" tabIndex={0}>
+    <div className="insight-chart-scroll" role="region" aria-label="چارت ماهانهٔ فروش، مصارف و مفاد" tabIndex={0}>
       <div className="qb-month-bars">
         {rows.map(row => <div className="qb-month" key={row.name} title={`${row.name} — فروشات ${money(row.sales)}، مصارف ${money(row.costs)}، مفاد ${money(row.net)}`}>
           <div className="qb-month-column">
@@ -2106,29 +2116,13 @@ function ReceivablePayableSnapshot({receivable, payable, salesCount, purchaseCou
 }
 
 function CashFlowChart({data, year}) {
-  const months = afghanMonths.map((name,index)=>({key:index+1,name,incoming:0,outgoing:0}));
-  const add=(date,key,amount)=>{const order=afghanDateOrder(date); if(!order) return; const y=Math.floor(order/10000); const m=Math.floor(order/100)%100; if(year && y!==Number(year)) return; if(m>=1&&m<=12) months[m-1][key]+=Number(amount||0);};
-  for(const invoice of data.invoices||[]) {
-    if(invoice.type==='sale') {
-      const subsequent=(invoice.payments||[]).reduce((s,p)=>s+Number(p.amount||0),0);
-      const initial=Math.max(0,Number(invoice.paid||0)-subsequent);
-      if(initial>0) add(invoice.date,'incoming',initial);
-      for(const p of invoice.payments||[]) if(p.viaCash!==false) add(p.date,'incoming',p.amount);
-    } else if(invoice.type==='purchase') {
-      const subsequent=(invoice.payments||[]).reduce((s,p)=>s+Number(p.amount||0),0);
-      const initial=Math.max(0,Number(invoice.paid||0)-subsequent);
-      if(initial>0) add(invoice.date,'outgoing',initial);
-      for(const p of invoice.payments||[]) if(p.viaCash!==false) add(p.date,'outgoing',p.amount);
-    }
-  }
-  for(const expense of data.expenses||[]) add(expense.date,'outgoing',expense.amount);
-  for(const payroll of data.payroll||[]) if(payroll.status==='paid') add(payroll.paidDate||payroll.date,'outgoing',payrollAmounts(payroll).net);
-  for(const entry of data.cashEntries||[]) add(entry.date,entry.kind==='in'?'incoming':'outgoing',entry.amount);
+  const months=afghanMonths.map((name,index)=>({key:index+1,name,incoming:0,outgoing:0}));
+  for(const entry of cashRegister(data,0).entries){const order=afghanDateOrder(entry.date);const y=Math.floor(order/10000);const m=Math.floor(order/100)%100;if(!order||(year&&y!==Number(year))||m<1||m>12)continue;months[m-1][entry.amount>0?'incoming':'outgoing']+=Math.abs(entry.amount);}
   const max=Math.max(1,...months.flatMap(m=>[m.incoming,m.outgoing]));
-  if(months.every(m=>!m.incoming&&!m.outgoing)) return <EmptyState text={year?`برای سال ${number(year)} هنوز دریافت یا پرداختی ثبت نشده است.`:"برای نمودار جریان پول، هنوز دریافت یا پرداختی ثبت نشده است."}/>;
+  if(months.every(m=>!m.incoming&&!m.outgoing)) return <EmptyState text={year?`برای سال ${number(year)} هنوز دریافت یا پرداختی ثبت نشده است.`:"برای چارت جریان پول، هنوز دریافت یا پرداختی ثبت نشده است."}/>;
   return <>
     <div className="insight-legend"><span className="insight-sales-key">پول داخل‌شده</span><span className="insight-purchases-key">پول خارج‌شده</span></div>
-    <div className="insight-chart-scroll" role="region" aria-label="نمودار جریان پول" tabIndex={0}>
+    <div className="insight-chart-scroll" role="region" aria-label="چارت جریان پول" tabIndex={0}>
       <div className="insight-month-bars">
         {months.map(month=><div className="insight-month" key={month.key} title={`${month.name} — دریافت ${money(month.incoming)}، پرداخت ${money(month.outgoing)}`}>
           <div className="insight-month-column">
@@ -2139,7 +2133,7 @@ function CashFlowChart({data, year}) {
         </div>)}
       </div>
     </div>
-    <p className="chart-note">این نمودار فقط از دریافت‌ها و پرداخت‌های ثبت‌شده ساخته می‌شود.</p>
+    <p className="chart-note">این چارت فقط از دریافت‌ها و پرداخت‌های ثبت‌شده ساخته می‌شود.</p>
   </>;
 }
 
@@ -2159,7 +2153,7 @@ function ExpenseBreakdownChart({data}) {
       <div><strong>{row.label}</strong><span>{money(row.amount)}</span></div>
       <div className="bar-track"><span style={{width:`${Math.max(8,row.amount/max*100)}%`}}/></div>
     </div>)}
-    <p className="chart-note">برای ساده‌ماندن نمودار، فقط بزرگ‌ترین گروه‌های مصرف نمایش داده شده‌اند.</p>
+    <p className="chart-note">برای ساده‌ماندن چارت، فقط بزرگ‌ترین گروه‌های مصرف نمایش داده شده‌اند.</p>
   </div>;
 }
 
@@ -2239,7 +2233,7 @@ function Dashboard({ data, totals, cashBalance=0, fiscalYear, userName, onNaviga
         <Panel title="مقایسه فروشات و خریداری‌ها" action={<span className="muted-pill">سال {number(fiscalYear)}</span>}>
           <SalesPurchaseChart data={chartData} fiscalYear={fiscalYear} />
         </Panel>
-        <Panel title="تحلیل قرضداری مشتریان" action={<button className="text-btn" onClick={() => onNavigate("debtors")}>دیدن مشتریان بدهکار</button>}>
+        <Panel title="تحلیل قرضداری مشتریان" action={<button className="text-btn" onClick={() => onNavigate("debtors")}>دیدن مشتریان قرضدار</button>}>
           <DebtAgingChart data={chartData} />
         </Panel>
         <Panel title="اجناس با موجودی کم" action={<button className="text-btn" onClick={() => onNavigate("products")}>دیدن محصولات</button>}>
@@ -2286,7 +2280,7 @@ function Dashboard({ data, totals, cashBalance=0, fiscalYear, userName, onNaviga
         </Panel>
         <Panel
           title="فعالیت‌های اخیر"
-          action={<span className="muted-pill">آخرین رویدادها</span>}
+          action={<span className="muted-pill">آخرین فعالیت‌ها</span>}
         >
           <RecentBusinessActivity data={data} />
         </Panel>
@@ -2302,7 +2296,7 @@ function SalesPurchaseChart({data,fiscalYear}) {
   if (!totalSales && !totalPurchases) return <EmptyState text="در این سال مالی هنوز بل فروش یا خرید ثبت نشده است."/>;
   return <>
     <div className="insight-legend"><span className="insight-sales-key">فروشات: {money(totalSales)}</span><span className="insight-purchases-key">خریداری‌ها: {money(totalPurchases)}</span></div>
-    <div className="insight-chart-scroll" role="region" aria-label="نمودار فروشات و خریداری‌ها به تفکیک ماه" tabIndex={0}>
+    <div className="insight-chart-scroll" role="region" aria-label="چارت فروشات و خریداری‌ها به تفکیک ماه" tabIndex={0}>
       <div className="insight-month-bars">
         {months.map(month=><div className="insight-month" key={month.month} title={`${month.name} — فروشات: ${money(month.sales)}، خریداری‌ها: ${money(month.purchases)}`}>
           <div className="insight-month-column">
@@ -2313,7 +2307,7 @@ function SalesPurchaseChart({data,fiscalYear}) {
         </div>)}
       </div>
     </div>
-    <p className="chart-note">برای دیدن مبلغ دقیق، روی ستون ماه نشانگر ببرید. در موبایل نمودار قابل کشیدن است.</p>
+    <p className="chart-note">برای دیدن مبلغ دقیق، روی ستون ماه نشانگر ببرید. در موبایل چارت قابل کشیدن است.</p>
   </>;
 }
 function DebtAgingChart({data}) {
@@ -2335,16 +2329,16 @@ function DebtAgingChart({data}) {
 }
 function LowStockDashboard({data}) {
   const items=lowStockProducts(data);
-  if (!items.length) return <EmptyState text="فعلاً جنس با موجودی کمتر یا مساوی نقطهٔ سفارش موجود نیست. برای شناسایی اجناس با موجودی کم، نقطهٔ سفارش محصولات را تعیین کنید."/>;
+  if (!items.length) return <EmptyState text="فعلاً جنس با موجودی کمتر یا مساوی حداقل موجودی برای خرید موجود نیست. برای شناسایی اجناس با موجودی کم، حداقل موجودی برای خرید محصولات را تعیین کنید."/>;
   return <div className="insight-stock-list">
     {items.slice(0,7).map(item=><div className="insight-stock-row" key={item.id}>
       <div className="insight-row-label"><strong>{item.name}</strong><span>{number(item.quantity)} / {number(item.reorder)} {item.unit||''}</span></div>
-      <div className="insight-bar-track" role="img" aria-label={`${item.name}، موجودی ${number(item.quantity)}، نقطه سفارش ${number(item.reorder)}`}>
+      <div className="insight-bar-track" role="img" aria-label={`${item.name}، موجودی ${number(item.quantity)}، حداقل موجودی برای خرید ${number(item.reorder)}`}>
         <div className={`insight-bar-fill stock ${Number(item.quantity)<=0?'empty-stock':''}`} style={{width:`${Math.max(0,Math.min(100,Number(item.quantity)/Number(item.reorder)*100))}%`}}/>
       </div>
     </div>)}
     {items.length>7&&<span className="chart-note">{number(items.length-7)} جنس دیگر نیز موجودی کم دارند.</span>}
-    <p className="chart-note">موجودی فعلی نسبت به نقطهٔ سفارش هر محصول</p>
+    <p className="chart-note">موجودی فعلی نسبت به حداقل موجودی برای خرید هر محصول</p>
   </div>;
 }
 function MonthlyOverview({ data, fiscalYear }) {
@@ -2441,7 +2435,7 @@ function WarehouseDashboard({ data, totals, onNavigate, onStock }) {
       <StatCard label="ارزش موجودی" value={money(inventory.value)} icon={CircleDollarSign} tone="blue"/>
       <StatCard label="محصولات ثبت‌شده" value={number(inventory.rows.length)} icon={Package} tone="violet"/>
       <StatCard label="تعداد موجودی" value={number(inventory.totalQuantity)} icon={Boxes} tone="green"/>
-      <StatCard label="زیر نقطه سفارش" value={number(lowStock.length)} icon={Package} tone="rose"/>
+      <StatCard label="زیر حداقل موجودی برای خرید" value={number(lowStock.length)} icon={Package} tone="rose"/>
       <StatCard label="کل ورودی ثبت‌شده" value={number(inventory.incoming)} icon={ArrowDownLeft} tone="cyan"/>
       <StatCard label="کل خروجی ثبت‌شده" value={number(inventory.outgoing)} icon={ArrowUpLeft} tone="amber"/>
     </div>
@@ -2465,8 +2459,8 @@ function WarehouseDashboard({ data, totals, onNavigate, onStock }) {
         : <EmptyState text="برای نمایش گروه‌ها، ابتدا محصول ثبت کنید."/>}
       </Panel>
       <Panel title="محصولات کم‌موجودی" action={<span className="muted-pill">{number(lowStock.length)} محصول</span>}>
-        <DataTable columns={[["name","محصول"],["quantity","موجودی"],["reorder","نقطه سفارش"]]} rows={lowStock}
-          empty="در حال حاضر محصولی زیر نقطه سفارش نیست."/>
+        <DataTable columns={[["name","محصول"],["quantity","موجودی"],["reorder","حداقل موجودی برای خرید"]]} rows={lowStock}
+          empty="در حال حاضر محصولی زیر حداقل موجودی برای خرید نیست."/>
       </Panel>
       <Panel title="آخرین حرکت‌های گدام">
         <DataTable columns={[["date","تاریخ"],["product","محصول"],["warehouse","گدام"],["movement","تغییر تعداد"],["source","نوع ثبت"]]} rows={activity} empty="تا هنوز حرکتی ثبت نشده است."/>
@@ -2493,7 +2487,7 @@ function CustomersDashboard({ data, totals, onNavigate, onInvoice }) {
               <Plus size={15} /> مشتری جدید
             </button>
             <button className="btn secondary" onClick={() => onNavigate("debtors")}>
-              <Wallet size={15} /> مشتریان بدهکار
+              <Wallet size={15} /> مشتریان قرضدار
             </button>
           </>
         }
@@ -2518,7 +2512,7 @@ function CustomersDashboard({ data, totals, onNavigate, onInvoice }) {
           tone="rose"
         />
         <StatCard
-          label="مشتریان بدهکار"
+          label="مشتریان قرضدار"
           value={number(
             Object.values(customerReceivables(data.invoices)).filter((value) => value > 0).length,
           )}
@@ -2531,7 +2525,7 @@ function CustomersDashboard({ data, totals, onNavigate, onInvoice }) {
           <ChartPlaceholder labels={afghanMonths.slice(0, 8)} />
         </Panel>
         <Panel title="تحلیل سنی بل‌های پرداخت‌نشده">
-          <EmptyState text="مطالبات پرداخت‌نشده‌ای وجود ندارد." />
+          <EmptyState text="طلبات پرداخت‌نشده‌ای وجود ندارد." />
         </Panel>
         <Panel title="مشتریان برتر سال">
           <EmptyState text="فروشی ثبت نشده است." />
@@ -2611,7 +2605,7 @@ function EntityPage({
         <div className="strip-search">
           <Search size={16} />
           <input
-            placeholder="جستجو بر اساس نام، کد یا معلومات..."
+            placeholder="جستجو بر اساس نام، کود یا معلومات..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -2671,7 +2665,7 @@ function DataTable({ columns, rows, onEdit, onDelete, onView, empty }) {
                     {onEdit && (
                       <button
                         className="icon-btn small"
-                        title="ویرایش"
+                        title="اصلاح"
                         onClick={() => onEdit(row)}
                       >
                         <Pencil size={14} />
@@ -2713,7 +2707,7 @@ function IdentityScanReadOnly({attachment}) {
     if(!attachment?.id)return;
     loadIdentityScan(attachment.id).then(file=>{
       if(!active)return;
-      if(!file?.blob){setError('سکن تذکره در حافظه این مرورگر پیدا نشد.');return;}
+      if(!file?.blob){setError('سکن تذکره در حافظه این براوزر پیدا نشد.');return;}
       created=URL.createObjectURL(file.blob);
       setUrl(created);
     }).catch(()=>{if(active)setError('بازکردن سند امکان‌پذیر نیست.');});
@@ -2722,7 +2716,7 @@ function IdentityScanReadOnly({attachment}) {
   if(!attachment?.id)return <span>ثبت نشده</span>;
   return <div className="detail-identity">
     <strong>{attachment.name||'سکن تذکره'}</strong>
-    {url&&attachment.mime?.startsWith('image/')&&<img src={url} alt="پیش‌نمایش سند هویت"/>}
+    {url&&attachment.mime?.startsWith('image/')&&<img src={url} alt="نمایش آزمایشی سند هویت"/>}
     {url&&<a className="btn secondary" href={url} download={attachment.name||'tazkira'} target="_blank" rel="noopener noreferrer"><Download size={15}/> دیدن / ذخیره سند</a>}
     {error&&<small className="form-error">{error}</small>}
   </div>;
@@ -2740,13 +2734,13 @@ function EntityDetails({record,config,page,data,preferences,onEdit}) {
       {page==='customers'&&<div className="entity-details-field"><small>مانده قرضداری</small><strong>{money(record.balance||0)}</strong></div>}
     </div>
     <div className="entity-details-section"><h3>سکن تذکره</h3><IdentityScanReadOnly attachment={record.identityScan}/></div>
-    {page==='customers'&&record.saleContract?.enabled&&<div className="entity-details-section"><h3>شرایط قرارداد مشتری</h3>{onEdit&&<button type="button" className="btn secondary" onClick={onEdit}><Pencil size={15}/> ویرایش قرارداد</button>}<p>پیش‌پرداخت {number(record.saleContract.percent)}٪ — مهلت باقی‌داری {number(record.saleContract.days)} روز</p><p className="contract-wrap-text">{record.saleContract.terms}</p><h4>سکن تذکره تضمین‌کننده (داخلی)</h4><IdentityScanReadOnly attachment={record.saleContract.guarantorScan}/><button type="button" className="btn secondary" onClick={()=>printHtml(contractPrintHtml(contractSnapshot(record,preferences,{number:'—',date:afghanKabulToday(),total:0,paid:0,balance:0}),null,calendarMode,preferences))}><Printer size={15}/> چاپ پیش‌نویس قرارداد</button></div>}
+    {page==='customers'&&record.saleContract?.enabled&&<div className="entity-details-section"><h3>شرایط قرارداد مشتری</h3>{onEdit&&<button type="button" className="btn secondary" onClick={onEdit}><Pencil size={15}/> اصلاح قرارداد</button>}<p>پیش‌پرداخت {number(record.saleContract.percent)}٪ — مهلت باقی‌داری {number(record.saleContract.days)} روز</p><p className="contract-wrap-text">{record.saleContract.terms}</p><h4>سکن تذکره تضمین‌کننده (داخلی)</h4><IdentityScanReadOnly attachment={record.saleContract.guarantorScan}/><button type="button" className="btn secondary" onClick={()=>printHtml(contractPrintHtml(contractSnapshot(record,preferences,{number:'—',date:afghanKabulToday(),total:0,paid:0,balance:0}),null,calendarMode,preferences))}><Printer size={15}/> چاپ پیش‌نویس قرارداد</button></div>}
     {page==='customers'&&<div className="entity-details-section"><h3>بل‌های فروش مشتری ({number(customerBills.length)})</h3>
-      {customerBills.length?<div className="table-wrap"><table><thead><tr><th>شماره بل</th><th>تاریخ</th><th>مجموع (AFN)</th><th>مانده</th></tr></thead><tbody>{customerBills.map(b=><tr key={b.id}><td>{b.number}</td><td>{b.date}</td><td>{money(b.total)}</td><td>{money(b.balance)}</td></tr>)}</tbody></table></div>:<p className="settings-muted-info">بلی ثبت نشده است.</p>}
+      {customerBills.length?<div className="table-wrap"><table><thead><tr><th>نمبر بل</th><th>تاریخ</th><th>مجموع (AFN)</th><th>مانده</th></tr></thead><tbody>{customerBills.map(b=><tr key={b.id}><td>{b.number}</td><td>{b.date}</td><td>{money(b.total)}</td><td>{money(b.balance)}</td></tr>)}</tbody></table></div>:<p className="settings-muted-info">بلی ثبت نشده است.</p>}
     </div>}
     {page==='employees'&&<div className="entity-details-section"><h3>سوابق معاش ({number(employeePayroll.length)})</h3>
       {employeePayroll.length?<div className="table-wrap"><table><thead><tr><th>ماه</th><th>سال</th><th>خالص معاش</th><th>وضعیت</th></tr></thead><tbody>{employeePayroll.map(p=><tr key={p.id}><td>{afghanMonths[Number(p.month)-1]||p.month}</td><td>{number(p.year)}</td><td>{money(payrollAmounts(p).net)}</td><td>{p.status==='paid'?'پرداخت‌شده':'پرداخت‌نشده'}</td></tr>)}</tbody></table></div>:<p className="settings-muted-info">معاشی ثبت نشده است.</p>}
-      <small>حاضری‌های اصلاح‌شده توسط مسئول: {number(employeeAttendance.length)} ریکارد</small>
+      <small>حاضری‌های اصلاح‌شده توسط مسوول: {number(employeeAttendance.length)} ریکارد</small>
     </div>}
   </div>;
 }
@@ -2777,6 +2771,7 @@ function formatCell(value, key, calendarMode) {
       "deduction",
       "debitBalance",
       "creditBalance",
+      "runningBalance",
     ].includes(key)
   )
     return number(value);
@@ -2801,26 +2796,26 @@ function DebtorsPage({ data, onPayment, onNavigate }) {
   const debtorsCount = Object.values(debtorTotals).filter((amount) => amount > 0).length;
   return <>
     <PageHeading
-      title="مشتریان بدهکار"
+      title="مشتریان قرضدار"
       description="بل‌های پرداخت‌نشده و دریافت پول از مشتریان را مدیریت کنید"
       actions={<button className="btn secondary" onClick={() => onNavigate("sales")}><Receipt size={15}/> رفتن به بل‌های فروش</button>}
     />
     <div className="stats-grid three">
       <StatCard label="مجموع طلبات" value={money(Object.values(debtorTotals).reduce((a,b)=>a+b,0))} icon={Wallet} tone="rose"/>
-      <StatCard label="مشتریان بدهکار" value={number(debtorsCount)} icon={Users} tone="violet"/>
+      <StatCard label="مشتریان قرضدار" value={number(debtorsCount)} icon={Users} tone="violet"/>
       <StatCard label="بل‌های پرداخت‌نشده" value={number(data.invoices.filter((x)=>x.type === "sale" && Number(x.balance||0)>0).length)} icon={Receipt} tone="blue"/>
     </div>
     <div className="summary-strip">
-      <div className="strip-search"><Search size={16}/><input value={filter} onChange={(e)=>setFilter(e.target.value)} placeholder="نام مشتری یا شماره بل..." aria-label="جستجوی مشتری بدهکار"/></div>
+      <div className="strip-search"><Search size={16}/><input value={filter} onChange={(e)=>setFilter(e.target.value)} placeholder="نام مشتری یا نمبر بل..." aria-label="جستجوی مشتری قرضدار"/></div>
     </div>
     <Panel title="فهرست بل‌های قرضه">
       <div className="table-wrap mobile-card-table">
         <table>
-          <thead><tr><th>مشتری</th><th>شماره بل</th><th>تاریخ</th><th>مجموع بل</th><th>پرداخت‌شده</th><th>مانده</th><th>عملیات</th></tr></thead>
+          <thead><tr><th>مشتری</th><th>نمبر بل</th><th>تاریخ</th><th>مجموع بل</th><th>پرداخت‌شده</th><th>مانده</th><th>عملیات</th></tr></thead>
           <tbody>
             {outstanding.map((invoice)=><tr key={invoice.id}>
               <td data-label="مشتری">{invoice.party || "مشتری نامشخص"}</td>
-              <td data-label="شماره بل">#{number(invoice.number)}</td>
+              <td data-label="نمبر بل">#{number(invoice.number)}</td>
               <td data-label="تاریخ">{invoice.date}</td>
               <td data-label="مجموع بل">{money(invoice.total)}</td>
               <td data-label="پرداخت‌شده">{money(invoice.paid)}</td>
@@ -2844,7 +2839,7 @@ function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
   return <form onSubmit={onSubmit} className="payment-form">
     <div className="payment-summary-grid">
       <div className="payment-summary-item"><span>{invoice.type==='purchase'?'عرضه‌کننده':'مشتری'}</span><strong>{invoice.party || 'طرف حساب نامشخص'}</strong></div>
-      <div className="payment-summary-item"><span>شماره بل</span><strong>#{number(invoice.number)}</strong></div>
+      <div className="payment-summary-item"><span>نمبر بل</span><strong>#{number(invoice.number)}</strong></div>
       <div className="payment-summary-item"><span>مجموع بل</span><strong>{money(invoice.total)}</strong></div>
       <div className="payment-summary-item"><span>مانده فعلی</span><strong>{money(remaining)}</strong></div>
     </div>
@@ -2852,7 +2847,7 @@ function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
       <label>واحد پول {invoice.type==='purchase'?'پرداخت':'دریافت'}
         <select value={form.currency||'AFN'} onChange={e=>{
           const next=e.target.value;
-          try {const afn=toAfn(Number(form.amount||0),form.currency||'AFN',rates);setForm({...form,currency:next,amount:form.amount===''?'':String(fromAfn(afn,next,rates))});} catch {if(!Number(form.amount))setForm({...form,currency:next}); else alert('نرخ این ارز را پیش از تبدیل مبلغ درج کنید.'); }
+          try {const afn=toAfn(Number(form.amount||0),form.currency||'AFN',rates);setForm({...form,currency:next,amount:form.amount===''?'':String(fromAfn(afn,next,rates))});} catch {if(!Number(form.amount)||window.confirm("نرخ تبادله پول جدید درج نشده است. مبلغ قبلی پاک شود تا مبلغ و نرخ جدید را درج کنید؟"))setForm({...form,currency:next,amount:""}); }
         }}>
           {CURRENCIES.map(code=><option key={code} value={code} >{CURRENCY_LABELS[code]}</option>)}
         </select>
@@ -2860,7 +2855,7 @@ function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
       {form.currency!=='AFN' && <div className="invoice-fx-box">
         <strong>نرخ تبدیل هنگام {invoice.type==='purchase'?'پرداخت':'دریافت'}</strong>
         <div className="invoice-fx-fields">
-          <label>۱ {form.currency} = چند AFN؟<GroupedNumberInput  dir="ltr" min="0" step="any" value={form[rateFieldFor(form.currency)]??''} onChange={e=>setForm({...form,[rateFieldFor(form.currency)]:e.target.value})}/></label>
+          <label>{quoteLabel(form.currency)} = چند AFN؟<GroupedNumberInput  dir="ltr" min="0" step="any" value={form[rateFieldFor(form.currency)]??''} onChange={e=>setForm({...form,[rateFieldFor(form.currency)]:e.target.value})}/></label>
         </div>
       </div>}
       <label>مبلغ {invoice.type==='purchase'?'پرداخت‌شده':'دریافت‌شده'} ({form.currency||'AFN'})
@@ -2873,7 +2868,7 @@ function PaymentForm({ invoice, form, setForm, onSubmit, onCancel }) {
     <label className="full-label">توضیحات (اختیاری)
       <textarea rows="2" value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} placeholder="مثلاً دریافت نقدی از مشتری"/>
     </label>
-    <p className="info-note">{rate?`معادل افغانی: ${money(amount)} — نرخ ۱ ${form.currency||'AFN'} = ${number(rate)} AFN`:'نرخ این ارز را در همین فورم وارد کنید.'}</p>
+    <p className="info-note">{rate?`معادل افغانی: ${money(amount)} — نرخ ${quoteLabel(form.currency||'AFN')} = ${number(rate*quoteUnits(form.currency||'AFN'))} AFN`:'نرخ این واحد پول را در همین فورم وارد کنید.'}</p>
     <div className="payment-result"><span>مانده بعد از دریافت</span><strong>{money(Math.max(0,remaining-(Number.isFinite(amount)?amount:0)))}</strong></div>
     {previous.length > 0 && <div className="payment-history">
       <strong>سوابق دریافت پول</strong>
@@ -2896,16 +2891,16 @@ function InvoiceDetails({invoice, data, preferences, onClose}) {
   const initialPayment=Math.max(0,Number(invoice.paid||0)-(invoice.payments||[]).reduce((sum,p)=>sum+Number(p.amount||0),0));
   return <div className="invoice-detail" dir="rtl">
     <div className="invoice-detail-meta">
-      <div><span>شماره بل</span><strong>#{number(invoice.number)}</strong></div>
+      <div><span>نمبر بل</span><strong>#{number(invoice.number)}</strong></div>
       <div><span>تاریخ</span><strong>{formatCalendarDate(invoice.date,calendarMode)}</strong></div>
       <div><span>{invoice.type==='purchase'?'عرضه‌کننده':'مشتری'}</span><strong>{invoice.party||'ثبت نشده'}</strong></div>
       <div><span>گدام</span><strong>{data.warehouses.find(w=>String(w.id)===String(invoice.warehouseId))?.name||'گدام عمومی'}</strong></div>
-      <div><span>واحد پول اصلی</span><strong>{currency} {currency!=='AFN'?`— ۱ ${currency} = ${number(invoice.exchangeRate||0)} AFN`:''}</strong></div>
+      <div><span>واحد پول اصلی</span><strong>{currency} {currency!=='AFN'?`— ${quoteLabel(currency)} = ${number(Number(invoice.exchangeRate||0)*quoteUnits(currency))} AFN`:''}</strong></div>
       <div><span>وضعیت</span><strong>{invoice.status||'ثبت‌شده'}</strong></div>
     </div>
     <h4>جزئیات اجناس</h4>
     <div className="table-wrap"><table><thead><tr><th>نام جنس</th><th>تعداد</th><th>قیمت واحد (AFN)</th><th>تخفیف (AFN)</th><th>مجموع (AFN)</th></tr></thead><tbody>
-      {(invoice.items||[]).map((item,index)=><tr key={index}><td>{item.product||'—'}</td><td>{number(item.quantity)}</td><td>{rowMoney(item.price)}</td><td>{rowMoney(item.discount)}</td><td>{rowMoney(Number(item.quantity||0)*Number(item.price||0)-Number(item.discount||0))}</td></tr>)}
+      {(invoice.items||[]).map((item,index)=><tr key={index}><td>{item.product||'—'}</td><td>{number(item.quantity)}</td><td>{rowMoney(item.price)}</td><td>{rowMoney(item.discount)}</td><td>{rowMoney(Number(item.lineTotalAfn??(Number(item.quantity||0)*Number(item.price||0)))-Number(item.discount||0))}</td></tr>)}
     </tbody></table></div>
     <div className="invoice-detail-breakdown">
       <div className="invoice-detail-total"><span>مجموع قیمت اجناس</span><strong>{rowMoney(goodsTotal)}</strong></div>
@@ -2992,7 +2987,7 @@ function InvoicesPage({ page, data, preferences, search, setSearch, onAdd, onEdi
         <div className="strip-search">
           <Search size={16} />
           <input
-            placeholder="جستجو بر اساس شماره بل یا نام مشتری..."
+            placeholder="جستجو بر اساس نمبر بل یا نام مشتری..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -3004,7 +2999,7 @@ function InvoicesPage({ page, data, preferences, search, setSearch, onAdd, onEdi
           <table>
             <thead>
               <tr>
-                <th>شماره بل</th>
+                <th>نمبر بل</th>
                 <th>تاریخ</th>
                 <th>{type === "purchase" ? "عرضه‌کننده" : "مشتری"}</th>
                 <th>تعداد اقلام</th>
@@ -3017,7 +3012,7 @@ function InvoicesPage({ page, data, preferences, search, setSearch, onAdd, onEdi
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <td data-label="شماره بل"><button type="button" className="table-detail-link" onClick={()=>setSelectedInvoiceId(row.id)}>#{number(row.number)} — جزئیات</button></td>
+                  <td data-label="نمبر بل"><button type="button" className="table-detail-link" onClick={()=>setSelectedInvoiceId(row.id)}>#{number(row.number)} — جزئیات</button></td>
                   <td data-label="تاریخ">{formatCalendarDate(row.date,calendarMode)}</td>
                   <td data-label={type === "purchase" ? "عرضه‌کننده" : "مشتری"}>{row.party || "—"}</td>
                   <td data-label="تعداد اقلام">{number(row.items?.length || 0)}</td>
@@ -3043,10 +3038,10 @@ function InvoicesPage({ page, data, preferences, search, setSearch, onAdd, onEdi
                       >
                         <Printer size={14} />
                       </button>
-                      {onEdit && <button type="button" className="icon-btn small" title="ویرایش بل (با صلاحیت مدیر)" aria-label="ویرایش بل" onClick={()=>onEdit(row)}><Pencil size={15}/></button>}
+                      {onEdit && <button type="button" className="icon-btn small" title="اصلاح بل (با صلاحیت مدیر)" aria-label="اصلاح بل" onClick={()=>onEdit(row)}><Pencil size={15}/></button>}
                       {onDelete && <button
                         className="icon-btn small danger"
-                        onClick={() => {if(window.confirm(`بل شماره ${row.number} حذف شود؟`))onDelete(row.id)}}
+                        onClick={() => {if(window.confirm(`بل نمبر ${row.number} حذف شود؟`))onDelete(row.id)}}
                         title="حذف"
                       >
                         <Trash2 size={14} />
@@ -3110,11 +3105,11 @@ function JournalPage({ data, onAdd, onDelete }) {
       <Panel title="فهرست اسناد">
         <DataTable
           columns={[
-            ["number", "شماره سند"],
+            ["number", "نمبر سند"],
             ["date", "تاریخ"],
             ["name", "نام سند"],
-            ["debit", "بدهکار"],
-            ["credit", "بستانکار"],
+            ["debit", "دبیت"],
+            ["credit", "کریدیت"],
           ]}
           rows={data.journals}
           onDelete={onDelete}
@@ -3309,19 +3304,19 @@ function PayrollPage({ data, onNavigate, onAdd, onPaid, onDelete }) {
       <StatCard label="معاش ناخالص" value={money(payrollTotal.gross)} icon={Wallet} tone="blue"/>
       <StatCard label="کسورات" value={money(payrollTotal.deduction)} icon={TrendingDown} tone="rose"/>
       <StatCard label="معاش خالص" value={money(payrollTotal.net)} icon={CircleDollarSign} tone="green"/>
-      <StatCard label="برگه‌های معاش" value={number(rows.length)} icon={Users} tone="amber"/>
+      <StatCard label="فورم‌های معاش" value={number(rows.length)} icon={Users} tone="amber"/>
       <StatCard label="معاش پرداخت‌شده" value={money(paid.reduce((s,x)=>s+payrollAmounts(x).net,0))} icon={Activity} tone="cyan"/>
     </div>
-    <Panel title="برگه‌های معاش کارمندان" action={<button className="btn secondary" onClick={()=> downloadCsv('معاشات', [['employeeName','کارمند'],['monthName','ماه'],['year','سال'],['gross','ناخالص'],['deduction','کسورات'],['net','خالص'],['paidLabel','وضعیت']], rows.map(x=>({...x,monthName:gregorian?payrollDisplayMonth(x):afghanMonths[Number(x.month)-1],paidLabel:x.status==='paid'?'پرداخت شده':'پرداخت نشده'})))}><Download size={15}/> خروجی CSV</button>}>
+    <Panel title="فورم‌های معاش کارمندان" action={<button className="btn secondary" onClick={()=> downloadCsv('معاشات', [['employeeName','کارمند'],['monthName','ماه'],['year','سال'],['gross','ناخالص'],['deduction','کسورات'],['net','خالص'],['paidLabel','وضعیت']], rows.map(x=>({...x,monthName:gregorian?payrollDisplayMonth(x):afghanMonths[Number(x.month)-1],paidLabel:x.status==='paid'?'پرداخت شده':'پرداخت نشده'})))}><Download size={15}/> خروجی CSV</button>}>
       <div className="table-wrap mobile-card-table"><table><thead><tr><th>کارمند</th><th>ماه</th><th>واحد</th><th>ناخالص</th><th>کسورات</th><th>خالص</th><th>وضعیت</th><th>عملیات</th></tr></thead>
         <tbody>{rows.map(p=> {const v=payrollAmounts(p);return <tr key={p.id}>
           <td data-label="کارمند">{p.employeeName}</td><td data-label="ماه">{gregorian?payrollDisplayMonth(p):`${afghanMonths[Number(p.month)-1]} ${number(p.year)}`}</td><td data-label="واحد">{p.unit||'—'}</td>
           <td data-label="ناخالص">{money(v.gross)}</td><td data-label="کسورات">{money(v.deduction)}</td><td data-label="خالص">{money(v.net)}</td>
           <td data-label="وضعیت"><span className={`status ${p.status==='paid'?'success':'warning'}`}>{p.status==='paid'?'پرداخت شده':'پرداخت نشده'}</span></td>
           <td data-label="عملیات" className="table-action-cell"><div className="row-actions">
-            {p.status!=='paid' && <>{onPaid && <button className="btn primary" onClick={()=>onPaid(p.id)}>ثبت پرداخت</button>}{onDelete && <button className="icon-btn small danger" title="حذف برگه" onClick={()=>onDelete(p.id)}><Trash2 size={15}/></button>}</>}
+            {p.status!=='paid' && <>{onPaid && <button className="btn primary" onClick={()=>onPaid(p.id)}>ثبت پرداخت</button>}{onDelete && <button className="icon-btn small danger" title="حذف فورم" onClick={()=>onDelete(p.id)}><Trash2 size={15}/></button>}</>}
           </div></td>
-        </tr>})}{!rows.length && <tr className="empty-data-row"><td className="empty-table-cell" colSpan={8}><EmptyState text={data.employees.length ? 'برای این دوره برگه معاش ثبت نشده است. روی «محاسبه معاش» بزنید.' : 'ابتدا کارمند ثبت کنید و معاش ماهانه او را وارد نمایید.'}/></td></tr>}</tbody>
+        </tr>})}{!rows.length && <tr className="empty-data-row"><td className="empty-table-cell" colSpan={8}><EmptyState text={data.employees.length ? 'برای این دوره فورم معاش ثبت نشده است. روی «محاسبه معاش» بزنید.' : 'ابتدا کارمند ثبت کنید و معاش ماهانه او را وارد نمایید.'}/></td></tr>}</tbody>
       </table></div>
     </Panel>
     <p className="info-note">این نسخه صرف برای نمایش معاشات است. محاسبه کسورات مطابق قوانین افغانستان به‌صورت خودکار فعال نیست.</p>
@@ -3361,7 +3356,7 @@ function AttendancePage({data,onMark,onMarkAll}) {
   const editable=!!onMark;
   const monthlyGrid=useMemo(()=>(<Panel title={`نمای ماهانه حاضری — ${displayPeriod}`}>
       <div className="attendance-legend"><span className="present">حاضر</span><span className="late">تأخیر</span><span className="absent">غایب</span><span className="off">رخصتی / جمعه</span></div>
-      <div className="table-scroll-hint" aria-hidden="true">برای دیدن روزهای دیگر، جدول را به چپ یا راست بکشید. علامت‌های کم‌رنگ به معنی پیش‌فرض اند.</div>
+      <div className="table-scroll-hint" aria-hidden="true">برای دیدن روزهای دیگر، جدول را به چپ یا راست بکشید. علامت‌های کم‌رنگ به معنی از قبل تعیین‌شده اند.</div>
       <div className="table-wrap wide-data-table attendance-grid" tabIndex="0"><table><thead><tr><th>کارمند</th>{Array.from({length:days},(_,i)=><th key={i}>{number(i+1)}</th>)}</tr></thead><tbody>
         {employees.map(e=><tr key={e.id}><td>{e.firstName} {e.lastName}</td>{Array.from({length:days},(_,i)=>{
           const dateAtDay=dayDates[i];
@@ -3372,9 +3367,9 @@ function AttendancePage({data,onMark,onMarkAll}) {
       </tbody></table></div>
     </Panel>),[employees,days,dayDates,monthlyByKey,editable,openAttendanceCell,displayPeriod]);
   return <>
-    <PageHeading title="حاضری کارمندان" description="روزهای کاری به‌صورت پیش‌فرض حاضر و روز جمعه رخصتی عمومی نشان داده می‌شوند. مسئول حاضری باید غیابت و تأخیر را بررسی و اصلاح کند." actions={<>
-      <button className="btn secondary" type="button" onClick={()=>downloadCsv('حاضری', [['date','تاریخ'],['employeeName','کارمند'],['statusLabel','وضعیت'],['sourceLabel','منبع ثبت'],['notes','توضیحات']], overview.rows.map(x=>({...x,statusLabel:ATTENDANCE_OPTIONS.find(v=>v.value===x.status)?.label||'',sourceLabel:x.automatic?'پیش‌فرض خودکار':'ثبت مسئول'})))}><Download size={16}/> CSV حاضری ماهانه</button>
-      {onMarkAll&&employees.some(e=>monthlyByKey.get(`${e.id}|${date}`)?.status==='present'&&monthlyByKey.get(`${e.id}|${date}`)?.automatic)&&<button className="btn secondary" type="button" onClick={()=>{if(window.confirm(`حاضری پیش‌فرض روز ${date} تأیید شود؟ غیابت‌های ثبت‌شده تغییر نمی‌کنند.`))onMarkAll(employees.map(e=>e.id),date)}}><ClipboardCheck size={16}/> تأیید حاضرهای پیش‌فرض</button>}
+    <PageHeading title="حاضری کارمندان" description="روزهای کاری به شکل خودکار حاضر و روز جمعه رخصتی عمومی نشان داده می‌شوند. مسوول حاضری باید غیابت و تأخیر را بررسی و اصلاح کند." actions={<>
+      <button className="btn secondary" type="button" onClick={()=>downloadCsv('حاضری', [['date','تاریخ'],['employeeName','کارمند'],['statusLabel','وضعیت'],['sourceLabel','منبع ثبت'],['notes','توضیحات']], overview.rows.map(x=>({...x,statusLabel:ATTENDANCE_OPTIONS.find(v=>v.value===x.status)?.label||'',sourceLabel:x.automatic?'ثبت خودکار':'ثبت مسوول'})))}><Download size={16}/> CSV حاضری ماهانه</button>
+      {onMarkAll&&employees.some(e=>monthlyByKey.get(`${e.id}|${date}`)?.status==='present'&&monthlyByKey.get(`${e.id}|${date}`)?.automatic)&&<button className="btn secondary" type="button" onClick={()=>{if(window.confirm(`حاضری خودکار روز ${date} تأیید شود؟ غیابت‌های ثبت‌شده تغییر نمی‌کنند.`))onMarkAll(employees.map(e=>e.id),date)}}><ClipboardCheck size={16}/> تأیید حاضرهای از قبل تعیین‌شده</button>}
     </>}/>
     <div className="filter-row attendance-controls">
       <label>سال {isGregorian?'میلادی':'هجری شمسی'}<select value={year} onChange={e=>{setYear(Number(e.target.value));setDay(1)}}>{[current.year-2,current.year-1,current.year,current.year+1].map(y=><option key={y} value={y}>{number(y)}</option>)}</select></label>
@@ -3382,7 +3377,7 @@ function AttendancePage({data,onMark,onMarkAll}) {
       <label>روز<select value={selectedDay} onChange={e=>setDay(Number(e.target.value))}>{dayDates.map((d,i)=><option key={d} value={i+1}>{number(i+1)}</option>)}</select></label>
       <label>واحد<select value={unit} onChange={e=>setUnit(e.target.value)}><option value="all">همه واحدها</option>{units.map(u=><option key={u} value={u}>{u}</option>)}</select></label>
     </div>
-    <div className="stats-grid four"><StatCard label="حاضر (شامل پیش‌فرض)" value={number(totals.present)} icon={BadgeCheck} tone="green"/><StatCard label="تأخیر" value={number(totals.late)} icon={Clock3} tone="amber"/><StatCard label="غایب" value={number(totals.absent)} icon={Users} tone="rose"/><StatCard label="رخصتی / جمعه" value={number(totals.off)} icon={CalendarDays} tone="blue"/></div>
+    <div className="stats-grid four"><StatCard label="حاضر (شامل از قبل تعیین‌شده)" value={number(totals.present)} icon={BadgeCheck} tone="green"/><StatCard label="تأخیر" value={number(totals.late)} icon={Clock3} tone="amber"/><StatCard label="غایب" value={number(totals.absent)} icon={Users} tone="rose"/><StatCard label="رخصتی / جمعه" value={number(totals.off)} icon={CalendarDays} tone="blue"/></div>
     <Panel title={`ثبت حاضری — ${formatCalendarDate(date,calendarMode)}`}>
       {employees.length?<div className="attendance-entry-list">
         {employees.map(e=>{
@@ -3390,7 +3385,7 @@ function AttendancePage({data,onMark,onMarkAll}) {
           const result=monthlyByKey.get(`${e.id}|${date}`)||{status:"",automatic:false};
           const isFriday=!recorded&&result.status==='off';
           return <div key={e.id} className="attendance-entry-row">
-            <div className="attendance-employee"><strong>{e.firstName} {e.lastName}</strong><small>{e.position||'کارمند'} {e.unit?`— ${e.unit}`:''}</small><small className="attendance-assumption">{result.automatic?(isFriday?'جمعه — رخصتی عمومی':'پیش‌فرض خودکار؛ غیابت را مسئول اصلاح کند'):(recorded?'ثبت شده توسط مسئول':'هنوز روز کاری فرا نرسیده است')}</small></div>
+            <div className="attendance-employee"><strong>{e.firstName} {e.lastName}</strong><small>{e.position||'کارمند'} {e.unit?`— ${e.unit}`:''}</small><small className="attendance-assumption">{result.automatic?(isFriday?'جمعه — رخصتی عمومی':'ثبت خودکار؛ غیابت را مسوول اصلاح کند'):(recorded?'ثبت شده توسط مسوول':'هنوز روز کاری فرا نرسیده است')}</small></div>
             <select aria-label={`حاضری ${e.firstName}`} disabled={!onMark} value={recorded?.status||result.status||''} onChange={event=>mark(e,event.target.value)}>
               <option value="">ثبت نشده</option>{options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -3398,10 +3393,10 @@ function AttendancePage({data,onMark,onMarkAll}) {
           </div>;
         })}
       </div>:<EmptyState text="ابتدا کارمند ثبت کنید یا فلتر واحد را تغییر دهید."/>}
-      {!onMark&&<p className="settings-muted-info">فقط مسئول مجاز می‌تواند وضعیت حاضری کارمندان را تغییر دهد.</p>}
+      {!onMark&&<p className="settings-muted-info">فقط مسوول مجاز می‌تواند وضعیت حاضری کارمندان را تغییر دهد.</p>}
     </Panel>
     {monthlyGrid}
-    {editCell&&onMark&&<Modal title={`ثبت حاضری — ${editCell.employee.firstName||''} ${editCell.employee.lastName||''}`} onClose={()=>setEditCell(null)}><form className="attendance-cell-editor" onSubmit={event=>{event.preventDefault();if(onMark(editCell.employee.id,editCell.date,editCell.status,editCell.notes)!==false){setNotes(prev=>{const next={...prev};delete next[`${editCell.employee.id}|${editCell.date}`];return next;});setEditCell(null);}}}><p>{formatCalendarDate(editCell.date,calendarMode)}</p><div className="attendance-choice-grid">{ATTENDANCE_OPTIONS.map(option=><button key={option.value} type="button" className={`attendance-choice ${editCell.status===option.value?'selected':''}`} aria-pressed={editCell.status===option.value} onClick={()=>setEditCell(old=>({...old,status:option.value}))}>{option.label}</button>)}</div><label>توضیح (اختیاری)<textarea rows="2" maxLength="220" value={editCell.notes} onChange={event=>setEditCell(old=>({...old,notes:event.target.value}))}/></label><div className="modal-actions"><button type="button" className="btn secondary" onClick={()=>setEditCell(null)}>لغو</button><button type="button" className="btn secondary" onClick={()=>{if(onMark(editCell.employee.id,editCell.date,'','')!==false)setEditCell(null);}}>بازگشت به پیش‌فرض</button><button className="btn primary" disabled={!editCell.status}><Save size={15}/> ثبت حاضری</button></div></form></Modal>}
+    {editCell&&onMark&&<Modal title={`ثبت حاضری — ${editCell.employee.firstName||''} ${editCell.employee.lastName||''}`} onClose={()=>setEditCell(null)}><form className="attendance-cell-editor" onSubmit={event=>{event.preventDefault();if(onMark(editCell.employee.id,editCell.date,editCell.status,editCell.notes)!==false){setNotes(prev=>{const next={...prev};delete next[`${editCell.employee.id}|${editCell.date}`];return next;});setEditCell(null);}}}><p>{formatCalendarDate(editCell.date,calendarMode)}</p><div className="attendance-choice-grid">{ATTENDANCE_OPTIONS.map(option=><button key={option.value} type="button" className={`attendance-choice ${editCell.status===option.value?'selected':''}`} aria-pressed={editCell.status===option.value} onClick={()=>setEditCell(old=>({...old,status:option.value}))}>{option.label}</button>)}</div><label>توضیح (اختیاری)<textarea rows="2" maxLength="220" value={editCell.notes} onChange={event=>setEditCell(old=>({...old,notes:event.target.value}))}/></label><div className="modal-actions"><button type="button" className="btn secondary" onClick={()=>setEditCell(null)}>لغو</button><button type="button" className="btn secondary" onClick={()=>{if(onMark(editCell.employee.id,editCell.date,'','')!==false)setEditCell(null);}}>بازگشت به از قبل تعیین‌شده</button><button className="btn primary" disabled={!editCell.status}><Save size={15}/> ثبت حاضری</button></div></form></Modal>}
   </>;
 }
 
@@ -3414,8 +3409,8 @@ function SimpleReportGuide({page,business,journals,balances,ledgerLines,rows}) {
     reports:'در این بخش می‌بینید چه اندازه فروش شده، چقدر پول دریافت شده و چه اندازه نزد مشتریان باقی مانده است.',
     trialBalance:'این گزارش نشان می‌دهد جمع دو طرف ثبت‌های حسابداری برابر است یا نه. برای بررسی درست‌بودن ثبت‌ها استفاده می‌شود.',
     journalReport:'معاملات ثبت‌شده را به ترتیب روز ببینید؛ برای پیدا کردن یک معامله از تاریخ استفاده کنید.',
-    ledgerReport:'ثبت‌های مربوط به هر سرفصل حساب را در یک جا ببینید؛ از فلتر «سرفصل حساب» استفاده کنید.',
-    documentReport:'شماره، تاریخ و مبلغ اسناد حسابداری را در یک فهرست ببینید.'
+    ledgerReport:'ثبت‌های هر حساب و مانده آن را در کهاته ببینید؛ حساب مورد نظر را از فلتر انتخاب کنید.',
+    documentReport:'نمبر، تاریخ و مبلغ اسناد حسابداری را در یک فهرست ببینید.'
   };
   const amounts=general ? [
     {label:'فروشات ثبت‌شده',value:everyday.sales,description:'مجموع بل‌های فروش، نقد و قرضه'},
@@ -3424,7 +3419,7 @@ function SimpleReportGuide({page,business,journals,balances,ledgerLines,rows}) {
     {label:'خریداری‌های ثبت‌شده',value:everyday.purchases,description:'مجموع بل‌های خرید، نه فقط پول پرداختی'},
     {label:'مصارف و معاشات',value:everyday.runningCosts,description:'مصارف ثبت‌شده و معاشات پرداخت‌شده'}
   ] : [
-    {label:page==='ledgerReport'?'تعداد سطرهای همین حساب':'تعداد اسناد',value:page==='ledgerReport'?accounting.lineCount:accounting.documentCount,count:true,description:page==='ledgerReport'?'مطابق سرفصل انتخاب‌شده':'در تاریخ و محدودهٔ انتخاب‌شده'},
+    {label:page==='ledgerReport'?'تعداد سطرهای همین حساب':'تعداد اسناد',value:page==='ledgerReport'?accounting.lineCount:accounting.documentCount,count:true,description:page==='ledgerReport'?'مطابق عنوان حساب انتخاب‌شده':'در تاریخ و محدودهٔ انتخاب‌شده'},
     {label:'مجموع دبیت',value:accounting.debit,description:'یک جانب ثبت حسابداری؛ لزوماً پول پرداختی نیست'},
     {label:'مجموع کریدیت',value:accounting.credit,description:'جانب دیگر ثبت حسابداری؛ لزوماً پول دریافتی نیست'}
   ];
@@ -3452,8 +3447,8 @@ function SimpleReportGuide({page,business,journals,balances,ledgerLines,rows}) {
   </section>;
 }
 
-function ReportsPage({ page, data, openingCash=0 }) {
-  const titles = {trialBalance:'تراز آزمایشی',journalReport:'گزارش روزنامه',ledgerReport:'گزارش کل',documentReport:'گزارش اسناد',reports:'گزارش‌های مالی'};
+function ReportsPage({ page, data, openingCash=0, onNavigate, onJournal, canView=()=>true }) {
+  const titles = {trialBalance:'تراز آزمایشی',journalReport:'روزنامچه',ledgerReport:'کهاته',documentReport:'گزارش اسناد',reports:'گزارش‌های مالی'};
   const title = titles[page] || 'گزارش‌های مالی';
   const calendarMode=React.useContext(CalendarModeContext);
   const [filter, setFilter] = useState({from:'',to:'',min:'',max:''});
@@ -3470,15 +3465,19 @@ function ReportsPage({ page, data, openingCash=0 }) {
     }
     setError(''); setApplied({...filter});
   };
-  const journals = buildAccountingJournal(data,openingCash).filter(j => isInAfghanRange(j.date, applied.from, applied.to) &&
+  const fullJournal = buildAccountingJournal(data,openingCash);
+  const journals = fullJournal.filter(j => isInAfghanRange(j.date, applied.from, applied.to) &&
     (!applied.min || Number(j.number) >= Number(applied.min)) && (!applied.max || Number(j.number) <= Number(applied.max)));
   const balances = journalBalances(journals).map(x => ({...x, debitBalance: Math.max(0,cash(x.debit-x.credit)), creditBalance: Math.max(0,cash(x.credit-x.debit))}));
   const journalLines = journals.flatMap(j => (j.rows||[]).map((line, i)=>({
     id:`${j.id}-${i}`, number:j.number, date:j.date, name:j.name, account:line.account,
     description:line.description, debit:Number(line.debit||0), credit:Number(line.credit||0)
   })));
-  const ledgerAccounts = [...new Set(journalLines.map(x => x.account).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fa'));
-  const ledgerLines = accountFilter === 'all' ? journalLines : journalLines.filter(x => x.account === accountFilter);
+  const ledgerAccounts = [...new Set(fullJournal.flatMap(j=>j.rows.map(x=>x.account)).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fa'));
+  const accountBalances = new Map();
+  const runningByLine = new Map();
+  for(const j of fullJournal) for(const [index,line] of j.rows.entries()){const balance=cash((accountBalances.get(line.account)||0)+Number(line.debit||0)-Number(line.credit||0));accountBalances.set(line.account,balance);runningByLine.set(`${j.id}-${index}`,balance);}
+  const ledgerLines = (accountFilter === 'all' ? journalLines : journalLines.filter(x => x.account === accountFilter)).map(line=>({...line,runningBalance:runningByLine.get(line.id)}));
   const documentRows = journals.map(j => ({id:j.id,number:j.number,date:j.date,name:j.name,debit:Number(j.debit||0),credit:Number(j.credit||0)}));
   const business = reportSummary(data, applied.from, applied.to);
   const businessRows = [
@@ -3487,22 +3486,24 @@ function ReportsPage({ page, data, openingCash=0 }) {
     ...business.payrollRows.map(x=>({id:`pay-${x.id}`,date:x.paidDate||x.date,kind:'معاش پرداخت‌شده',name:x.employeeName,amount:payrollAmounts(x).net,paid:payrollAmounts(x).net,balance:0}))
   ].sort((a,b)=>afghanDateOrder(b.date)-afghanDateOrder(a.date));
   const columns = page==='reports' ? [['date','تاریخ'],['kind','نوع'],['name','شرح'],['amount','مبلغ (افغانی)'],['paid','پرداخت'],['balance','مانده']]
-    : page==='trialBalance' ? [['account','سرفصل حساب'],['debit','گردش دبیت'],['credit','گردش کریدیت'],['debitBalance','مانده دبیت'],['creditBalance','مانده کریدیت']]
-    : page==='documentReport' ? [['number','شماره سند'],['date','تاریخ'],['name','نام سند'],['debit','دبیت'],['credit','کریدیت']]
-    : [['number','شماره سند'],['date','تاریخ'],['name','نام سند'],['account','سرفصل'],['description','شرح'],['debit','دبیت'],['credit','کریدیت']];
+    : page==='trialBalance' ? [['account','عنوان حساب'],['debit','گردش دبیت'],['credit','گردش کریدیت'],['debitBalance','مانده دبیت'],['creditBalance','مانده کریدیت']]
+    : page==='documentReport' ? [['number','نمبر سند'],['date','تاریخ'],['name','نام سند'],['debit','دبیت'],['credit','کریدیت']]
+    : [['number','نمبر سند'],['date','تاریخ'],['name','نام سند'],['account','عنوان حساب'],['description','شرح'],['debit','دبیت'],['credit','کریدیت'],...(page==='ledgerReport'?[['runningBalance','مانده (دبیت − کریدیت)']]:[])];
   const rows = page==='reports' ? businessRows : page==='trialBalance' ? balances : page==='ledgerReport' ? ledgerLines : page==='documentReport' ? documentRows : journalLines;
   return <>
-    <PageHeading title={title} description="گزارش‌های قابل جستجو از معلومات ثبت‌شده در همین مرورگر"
-      actions={<><button className="btn secondary" onClick={()=>downloadCsv(title,columns,rows)}><Download size={15}/> خروجی CSV</button>
+    <PageHeading title={title} description="دفتر حسابات از معلومات ثبت‌شده در همین براوزر"
+      actions={<>{page==='journalReport'&&onJournal&&<button type="button" className="btn primary" onClick={onJournal}><Plus size={15}/> ثبت سند حسابداری</button>}<button className="btn secondary" onClick={()=>downloadCsv(title,columns,rows)}><Download size={15}/> خروجی CSV</button>
       <button className="btn secondary" onClick={()=>window.print()}><Printer size={15}/> چاپ گزارش</button></>}/>
+    {page==='ledgerReport'&&<Panel title="کهاته طرف‌های حساب"><p className="chart-note">برای دیدن حساب جداگانه هر مشتری، عرضه‌کننده یا صراف، بخش مربوط را باز کنید. کهاته عمومی حسابات در جدول پایین است.</p><div className="heading-actions">{canView('traderAccounts')&&<button type="button" className="btn secondary" onClick={()=>onNavigate('traderAccounts')}>کهاته مشتریان و عرضه‌کنندگان</button>}{canView('sarrafs')&&<button type="button" className="btn secondary" onClick={()=>onNavigate('sarrafs')}>کهاته صرافان</button>}</div></Panel>}
     <Panel title="فلتر گزارش">
       <form className="report-filter" onSubmit={saveFilter}>
         <label>تاریخ شروع ({calendarMode==='gregorian'?'میلادی':'شمسی'})<AfghanDatePicker value={filter.from} onChange={date=>setFilter({...filter,from:date})}/></label>
         <label>تاریخ پایان ({calendarMode==='gregorian'?'میلادی':'شمسی'})<AfghanDatePicker value={filter.to} onChange={date=>setFilter({...filter,to:date})}/></label>
-        {page==='ledgerReport' && <label>سرفصل حساب<select value={accountFilter} onChange={e=>setAccountFilter(e.target.value)}><option value="all">همه سرفصل‌ها</option>{ledgerAccounts.map(name=><option key={name}>{name}</option>)}</select></label>}
-        {page!=='reports' && <><label>شماره شروع سند<input type="number" min="1" value={filter.min} onChange={e=>setFilter({...filter,min:e.target.value})} placeholder="از شماره"/></label>
-          <label>شماره پایان سند<input type="number" min="1" value={filter.max} onChange={e=>setFilter({...filter,max:e.target.value})} placeholder="تا شماره"/></label></>}
+        {page==='ledgerReport' && <label>حساب<select value={accountFilter} onChange={e=>setAccountFilter(e.target.value)}><option value="all">همه عنوان‌های حساب</option>{ledgerAccounts.map(name=><option key={name}>{name}</option>)}</select></label>}
+        {page!=='reports' && <><label>نمبر شروع سند<input type="number" min="1" value={filter.min} onChange={e=>setFilter({...filter,min:e.target.value})} placeholder="از نمبر"/></label>
+          <label>نمبر پایان سند<input type="number" min="1" value={filter.max} onChange={e=>setFilter({...filter,max:e.target.value})} placeholder="تا نمبر"/></label></>}
         <button className="btn primary" type="submit"><Search size={15}/> نمایش گزارش</button>
+        {page==='journalReport'&&<button className="btn secondary" type="button" onClick={()=>{const f={from:today,to:today,min:'',max:''};setFilter(f);setApplied(f);setError('')}}>معاملات امروز</button>}
         <button className="btn secondary" type="button" onClick={()=>{setFilter({from:'',to:'',min:'',max:''});setApplied({from:'',to:'',min:'',max:''});setError('');setAccountFilter('all')}}>پاک کردن فلتر</button>
       </form>
       {error && <p className="form-error" role="alert">{error}</p>}
@@ -3547,10 +3548,10 @@ function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIss
     if(result) setRecoveryShown(result);
   };
   const recoveryPanel=recoveryShown && <div className="recovery-code-panel" role="status">
-    <strong>کد بازیابی حساب: <span dir="ltr">{recoveryShown.username}</span></strong>
+    <strong>کود بازگردانی حساب: <span dir="ltr">{recoveryShown.username}</span></strong>
     <code dir="ltr">{recoveryShown.code}</code>
-    <small>این کد فقط یک‌بار نمایش داده می‌شود. آن را خصوصی به کارمند بدهید. تا {new Date(recoveryShown.expires).toLocaleString('fa-AF')} معتبر است.</small>
-    <div className="role-item-actions"><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(recoveryShown.code)}><ClipboardList size={16}/> کاپی کد</button><button type="button" className="btn secondary" onClick={()=>setRecoveryShown(null)}>پنهان کردن کد</button></div>
+    <small>این کود فقط یک‌بار نمایش داده می‌شود. آن را خصوصی به کارمند بدهید. تا {new Date(recoveryShown.expires).toLocaleString('fa-AF')} معتبر است.</small>
+    <div className="role-item-actions"><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(recoveryShown.code)}><ClipboardList size={16}/> کاپی کود</button><button type="button" className="btn secondary" onClick={()=>setRecoveryShown(null)}>پنهان کردن کود</button></div>
   </div>;
   const startRole=role=>{setTab('roles');setFormError('');setRoleDraft(role?{id:role.id,name:role.name,permissions:[...role.permissions]}:{id:'',name:'',permissions:[]});setEditingRole(true);};
   const startUser=user=>{setTab('users');setFormError('');setUserDraft(user?{id:user.id,employeeId:user.employeeId||'',name:user.name,title:user.title||'',roleId:user.roleId,username:user.username||'',password:'',confirmPassword:'',active:user.active!==false,grants:[...(user.grants||[])],...normalizeScheduleFields(user)}:emptyUser());setEditingUser(true);};
@@ -3573,8 +3574,8 @@ function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIss
     e.preventDefault();setFormError('');
     const employee=employees.find(e=>String(e.id)===String(userDraft.employeeId));
     if(!employee){setFormError('اول کارمند را انتخاب کنید. اگر کارمند موجود نیست، در بخش کارمندان او را اضافه کنید.');return;}
-    if(access.users.some(u=>u.id!==userDraft.id && String(u.employeeId||'')===String(userDraft.employeeId))){setFormError('این کارمند حساب کاربری دارد.');return;}
-    if(!validUsername(userDraft.username)){setFormError('نام کاربری باید ۳ تا ۳۲ حرف انگلیسی یا عدد داشته باشد.');return;}
+    if(access.users.some(u=>u.id!==userDraft.id && String(u.employeeId||'')===String(userDraft.employeeId))){setFormError('این کارمند حساب کاربر دارد.');return;}
+    if(!validUsername(userDraft.username)){setFormError('نام کاربر باید ۳ تا ۳۲ حرف انگلیسی یا عدد داشته باشد.');return;}
     if(!roleById(userDraft.roleId)){setFormError('نقش معتبر انتخاب کنید.');return;}
     if(!validShiftTime(userDraft.shiftStart)||!validShiftTime(userDraft.shiftEnd)||userDraft.shiftStart===userDraft.shiftEnd){setFormError('ساعت آغاز و ختم شیفت متفاوت و معتبر باشد.');return;}
     if(userDraft.extraUntil && !validAfghanDateTime(userDraft.extraUntil)){setFormError('تاریخ و ساعت دسترسی اضافی معتبر نیست.');return;}
@@ -3585,11 +3586,11 @@ function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIss
     const ok=await onSaveUser({...userDraft,name:[employee.firstName,employee.lastName].filter(Boolean).join(' ').trim(),title:employee.position||''},userDraft.password);
     setWorking(false);
     if(ok){setEditingUser(false);setUserDraft(emptyUser());}
-    else setFormError('ذخیره انجام نشد؛ نام کاربری تکراری و معلومات را بررسی کنید.');
+    else setFormError('ذخیره انجام نشد؛ نام کاربر تکراری و معلومات را بررسی کنید.');
   };
   const submitAdmin=async e=>{
     e.preventDefault();setFormError('');
-    if(!validUsername(adminDraft.username)){setFormError('نام کاربری مدیر باید ۳ تا ۳۲ حرف انگلیسی یا عدد باشد.');return;}
+    if(!validUsername(adminDraft.username)){setFormError('نام کاربر مدیر باید ۳ تا ۳۲ حرف انگلیسی یا عدد باشد.');return;}
     if(adminDraft.password.length<8){setFormError('رمز مدیر حداقل ۸ حرف داشته باشد.');return;}
     if(adminDraft.password!==adminDraft.confirmPassword){setFormError('رمزها یکسان نیستند.');return;}
     setWorking(true);
@@ -3599,12 +3600,12 @@ function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIss
       setAdminDraft(p=>({...p,password:'',confirmPassword:''}));setShowAdminReset(false);
       setRecoveryShown({username:adminDraft.username,code:result.recoveryCode,expires:Date.now()+365*86400000});
     }
-    else setFormError('تنظیم ورود انجام نشد؛ نام کاربری یا رمز را بررسی کنید.');
+    else setFormError('تنظیم ورود انجام نشد؛ نام کاربر یا رمز را بررسی کنید.');
   };
   const linkedUserId=employeeId=>access.users.find(u=>String(u.employeeId||'')===String(employeeId))?.id;
   return <>
     <PageHeading title="نقش‌ها و صلاحیت‌ها" description="برای کارمندان حساب ورود بسازید و صلاحیت هر نقش را تعیین کنید."/>
-    <div className="info-note" role="status"><Clock3 size={16}/> وقت فعلی افغانستان: <strong dir="ltr">{kabulLocalDateTime(nowAfghanistan).replace('T',' ')}</strong> — شیفت‌ها به همین وقت بررسی می‌شوند. <strong>حساب مدیر اصلی محدودیت ساعت ندارد.</strong> برای آزمایش واقعی از حساب کارمند وارد شوید؛ پیش‌نمایش کارمند نیز اکنون ساعت کاری را بررسی می‌کند.</div>
+    <div className="info-note" role="status"><Clock3 size={16}/> وقت فعلی افغانستان: <strong dir="ltr">{kabulLocalDateTime(nowAfghanistan).replace('T',' ')}</strong> — شیفت‌ها به همین وقت بررسی می‌شوند. <strong>حساب مدیر اصلی محدودیت ساعت ندارد.</strong> برای آزمایش واقعی از حساب کارمند وارد شوید؛ نمایش آزمایشی کارمند نیز اکنون ساعت کاری را بررسی می‌کند.</div>
     <div className="role-tabs" role="tablist" aria-label="مدیریت کاربران و نقش‌ها">
       <button type="button" role="tab" aria-selected={tab==='users'} className={`btn ${tab==='users'?'primary':'secondary'}`} onClick={()=>{setTab('users');setEditingRole(false);setFormError('')}}><Users size={16}/> کاربران ({number(access.users.length)})</button>
       <button type="button" role="tab" aria-selected={tab==='roles'} className={`btn ${tab==='roles'?'primary':'secondary'}`} onClick={()=>{setTab('roles');setEditingUser(false);setFormError('')}}><ShieldCheck size={16}/> نقش‌ها ({number(access.roles.length)})</button>
@@ -3613,12 +3614,12 @@ function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIss
       <Panel title="فهرست نقش‌ها" action={<button type="button" className="btn primary" onClick={()=>startRole(null)}><Plus size={16}/> ایجاد نقش</button>}>
         <div className="role-list">{access.roles.map(role=><div className="role-list-item" key={role.id}>
           <div className="role-item-main"><span className="role-item-icon"><ShieldCheck size={21}/></span><div><strong>{role.name}</strong><small>{role.system?'نقش اصلی سیستم — قابل حذف نیست':`${number(role.permissions.length)} صلاحیت • ${number(access.users.filter(u=>u.roleId===role.id).length)} کاربر`}</small></div></div>
-          <div className="role-item-actions">{!role.system && <><button type="button" className="btn secondary" onClick={()=>startRole(role)}><Pencil size={15}/> ویرایش</button><button type="button" className="btn secondary danger-text" onClick={()=>{if(window.confirm(`نقش «${role.name}» حذف شود؟`)) onDeleteRole(role.id)}}><Trash2 size={15}/> حذف</button></>}</div>
+          <div className="role-item-actions">{!role.system && <><button type="button" className="btn secondary" onClick={()=>startRole(role)}><Pencil size={15}/> اصلاح</button><button type="button" className="btn secondary danger-text" onClick={()=>{if(window.confirm(`نقش «${role.name}» حذف شود؟`)) onDeleteRole(role.id)}}><Trash2 size={15}/> حذف</button></>}</div>
         </div>)}</div>
       </Panel>
-      {editingRole && <Panel title={roleDraft.id?'ویرایش نقش':'ایجاد نقش جدید'}>
+      {editingRole && <Panel title={roleDraft.id?'اصلاح نقش':'ایجاد نقش جدید'}>
         <form onSubmit={submitRole} className="roles-editor-form">
-          <label>نام نقش<input value={roleDraft.name} maxLength={60} required placeholder="مثلاً: مسئول فروشات" onChange={e=>setRoleDraft({...roleDraft,name:e.target.value})}/></label>
+          <label>نام نقش<input value={roleDraft.name} maxLength={60} required placeholder="مثلاً: مسوول فروشات" onChange={e=>setRoleDraft({...roleDraft,name:e.target.value})}/></label>
           <div className="roles-editor-heading"><strong>تعیین صلاحیت‌ها</strong><div className="role-item-actions"><button type="button" className="btn secondary" onClick={()=>setRoleDraft({...roleDraft,permissions:PERMISSION_GROUPS.flatMap(g=>g.permissions.map(([k])=>k))})}>انتخاب همه</button><button type="button" className="btn secondary" onClick={()=>setRoleDraft({...roleDraft,permissions:[]})}>پاک کردن</button></div></div>
           <div className="role-permission-grid">{PERMISSION_GROUPS.map(group=><fieldset className="role-permission-group" key={group.name}><legend>{group.name}</legend>{group.permissions.map(([key,label])=><label key={key} className="role-permission-item"><input type="checkbox" checked={roleDraft.permissions.includes(key)} onChange={()=>togglePermission(key)}/><span>{label}</span></label>)}</fieldset>)}</div>
           {formError && <p className="form-error" role="alert">{formError}</p>}
@@ -3630,33 +3631,33 @@ function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIss
       {recoveryPanel}
       {(!demoLoginEnabled || showAdminReset) && <Panel title={demoLoginEnabled?'تغییر رمز مدیر':'تنظیم حساب مدیر'}>
         <form className="business-settings-form role-user-form" onSubmit={submitAdmin} autoComplete="off">
-          <label>نام کاربری مدیر<input required dir="ltr" value={adminDraft.username} onChange={e=>setAdminDraft({...adminDraft,username:e.target.value})} placeholder="admin"/></label>
+          <label>نام کاربر مدیر<input required dir="ltr" value={adminDraft.username} onChange={e=>setAdminDraft({...adminDraft,username:e.target.value})} placeholder="admin"/></label>
           <label>رمز مدیر (حداقل ۸ حرف)<input required type="password" minLength={8} autoComplete="new-password" value={adminDraft.password} onChange={e=>setAdminDraft({...adminDraft,password:e.target.value})}/></label>
           <label>تکرار رمز<input required type="password" minLength={8} autoComplete="new-password" value={adminDraft.confirmPassword} onChange={e=>setAdminDraft({...adminDraft,confirmPassword:e.target.value})}/></label>
           {formError && <p role="alert" className="form-error">{formError}</p>}
           <div className="role-item-actions"><button disabled={working} className="btn primary" type="submit"><LockKeyhole size={17}/> ذخیره رمز مدیر</button></div>
         </form>
       </Panel>}
-      {demoLoginEnabled && <div className="info-note">برای ورود با حساب کارمند، ابتدا از حساب مدیر خارج شوید. نام کاربری مدیر: <strong dir="ltr">{access.users.find(u=>u.system)?.username}</strong> <button type="button" className="btn secondary" onClick={()=>{setShowAdminReset(v=>!v);setFormError('')}}>تغییر رمز مدیر</button></div>}
+      {demoLoginEnabled && <div className="info-note">برای ورود با حساب کارمند، ابتدا از حساب مدیر خارج شوید. نام کاربر مدیر: <strong dir="ltr">{access.users.find(u=>u.system)?.username}</strong> <button type="button" className="btn secondary" onClick={()=>{setShowAdminReset(v=>!v);setFormError('')}}>تغییر رمز مدیر</button></div>}
       <Panel title="کاربران و نقش‌های آن‌ها" action={<button type="button" className="btn primary" onClick={()=>startUser(null)}><UserPlus size={16}/> افزودن کاربر</button>}>
         <div className="role-list">{access.users.map(user=><div className="role-list-item" key={user.id}>
-          <div className="role-item-main"><span className="role-user-avatar">{user.name.trim().charAt(0)||'ک'}</span><div><strong>{user.name}</strong><small>{user.title||'بدون عنوان'} • {roleById(user.roleId)?.name||'نقش نامشخص'}{(user.grants||[]).length?` • ${(user.grants||[]).length} اجازهٔ اختصاصی`:''}</small><small>نام کاربری: <b dir="ltr">{user.username||'تعیین نشده'}</b> • {user.passwordHash?'رمز تنظیم شده':'بدون رمز'} • {user.active===false?'غیرفعال':'فعال'}</small>{!user.system && <><small>شیفت {normalizeScheduleFields(user).shiftStart} تا {normalizeScheduleFields(user).shiftEnd} (وقت افغانستان){normalizeScheduleFields(user).extraUntil?` • اجازهٔ اضافی تا ${normalizeScheduleFields(user).extraUntil.replace('T',' ')}`:''}</small><small className={employeeAccess(user,nowAfghanistan).allowed?'shift-current-open':'shift-current-closed'}>{employeeAccess(user,nowAfghanistan).allowed?'● اکنون اجازهٔ ورود دارد':'● اکنون ورود بسته است'}{normalizeScheduleFields(user).extraUntil && employeeAccess(user,nowAfghanistan).allowed && !employeeAccess({...user,extraUntil:''},nowAfghanistan).allowed?' (با اجازهٔ اضافی)':''}</small></>}</div></div>
-          <div className="role-item-actions">{!user.system && <><button type="button" className="btn secondary" onClick={()=>onPreviewUser(user.id)}><Eye size={15}/> آزمایش صلاحیت</button><button type="button" className="btn secondary" onClick={()=>startUser(user)}><Pencil size={15}/> ویرایش / تنظیم رمز</button></>}
-          {demoLoginEnabled && <button type="button" className="btn secondary" disabled={working} onClick={()=>issueCode(user.id)}><KeyRound size={15}/> ساخت کد بازیابی</button>}
+          <div className="role-item-main"><span className="role-user-avatar">{user.name.trim().charAt(0)||'ک'}</span><div><strong>{user.name}</strong><small>{user.title||'بدون عنوان'} • {roleById(user.roleId)?.name||'نقش نامشخص'}{(user.grants||[]).length?` • ${(user.grants||[]).length} اجازهٔ اختصاصی`:''}</small><small>نام کاربر: <b dir="ltr">{user.username||'تعیین نشده'}</b> • {user.passwordHash?'رمز تنظیم شده':'بدون رمز'} • {user.active===false?'غیرفعال':'فعال'}</small>{!user.system && <><small>شیفت {normalizeScheduleFields(user).shiftStart} تا {normalizeScheduleFields(user).shiftEnd} (وقت افغانستان){normalizeScheduleFields(user).extraUntil?` • اجازهٔ اضافی تا ${normalizeScheduleFields(user).extraUntil.replace('T',' ')}`:''}</small><small className={employeeAccess(user,nowAfghanistan).allowed?'shift-current-open':'shift-current-closed'}>{employeeAccess(user,nowAfghanistan).allowed?'● اکنون اجازهٔ ورود دارد':'● اکنون ورود بسته است'}{normalizeScheduleFields(user).extraUntil && employeeAccess(user,nowAfghanistan).allowed && !employeeAccess({...user,extraUntil:''},nowAfghanistan).allowed?' (با اجازهٔ اضافی)':''}</small></>}</div></div>
+          <div className="role-item-actions">{!user.system && <><button type="button" className="btn secondary" onClick={()=>onPreviewUser(user.id)}><Eye size={15}/> آزمایش صلاحیت</button><button type="button" className="btn secondary" onClick={()=>startUser(user)}><Pencil size={15}/> اصلاح / تنظیم رمز</button></>}
+          {demoLoginEnabled && <button type="button" className="btn secondary" disabled={working} onClick={()=>issueCode(user.id)}><KeyRound size={15}/> ساخت کود بازگردانی</button>}
           {!user.system && <button type="button" className="btn secondary danger-text" onClick={()=>{if(window.confirm(`کاربر «${user.name}» حذف شود؟`)) onDeleteUser(user.id)}}><Trash2 size={15}/> حذف</button>}
           {user.system && <span className="muted-pill">مدیر اصلی</span>}</div>
         </div>)}</div>
       </Panel>
-      {editingUser && <Panel title={userDraft.id?'ویرایش حساب کارمند':'افزودن کاربر برای کارمند'}>
+      {editingUser && <Panel title={userDraft.id?'اصلاح حساب کارمند':'افزودن کاربر برای کارمند'}>
         <form className="business-settings-form role-user-form" onSubmit={submitUser} autoComplete="off">
-          <label>انتخاب کارمند از فهرست کارمندان<select required value={userDraft.employeeId} onChange={e=>chooseEmployee(e.target.value)}><option value="">— کارمند را انتخاب کنید —</option>{employees.filter(employee=>!linkedUserId(employee.id)||linkedUserId(employee.id)===userDraft.id).map(employee=><option value={employee.id} key={employee.id}>{[employee.firstName,employee.lastName].filter(Boolean).join(' ')} — {employee.employeeCode||employee.position||'بدون کد'}</option>)}</select></label>
+          <label>انتخاب کارمند از فهرست کارمندان<select required value={userDraft.employeeId} onChange={e=>chooseEmployee(e.target.value)}><option value="">— کارمند را انتخاب کنید —</option>{employees.filter(employee=>!linkedUserId(employee.id)||linkedUserId(employee.id)===userDraft.id).map(employee=><option value={employee.id} key={employee.id}>{[employee.firstName,employee.lastName].filter(Boolean).join(' ')} — {employee.employeeCode||employee.position||'بدون کود'}</option>)}</select></label>
           {!employees.length && <p className="form-error">هیچ کارمندی ثبت نشده است. نخست از منوی «منابع بشری ← کارمندان» کارمند اضافه کنید.</p>}
           <div className="linked-employee-preview"><UserRoundCheck size={17}/><span>{userDraft.name||'نام کارمند پس از انتخاب نمایش داده می‌شود'}{userDraft.title?` — ${userDraft.title}`:''}</span></div>
-          <label>نام کاربری برای ورود (حروف انگلیسی)<input required dir="ltr" autoComplete="off" minLength={3} maxLength={32} value={userDraft.username} onChange={e=>setUserDraft({...userDraft,username:e.target.value.toLowerCase()})} placeholder="ahmad01"/></label>
+          <label>نام کاربر برای ورود (حروف انگلیسی)<input required dir="ltr" autoComplete="off" minLength={3} maxLength={32} value={userDraft.username} onChange={e=>setUserDraft({...userDraft,username:e.target.value.toLowerCase()})} placeholder="ahmad01"/></label>
           <label>نقش کاربر<select value={userDraft.roleId} onChange={e=>setUserDraft({...userDraft,roleId:e.target.value})}>{access.roles.filter(r=>r.id!=='admin').map(r=><option value={r.id} key={r.id}>{r.name}</option>)}</select></label>
           <fieldset className="role-permission-group individual-access-grants">
             <legend>اجازه‌های اختصاصی برای همین کارمند</legend>
-            <p className="info-note">به‌صورت پیش‌فرض فقط مدیر سیستم اجازهٔ ویرایش یا حذف ریکاردهای قبلی را دارد. برای این کارمند فقط صلاحیت‌های ضروری را فعال کنید. اجازه‌های نقش او نیز اعتبار دارند.</p>
+            <p className="info-note">در حالت عادی فقط مدیر سیستم اجازهٔ اصلاح یا حذف ریکاردهای قبلی را دارد. برای این کارمند فقط صلاحیت‌های ضروری را فعال کنید. اجازه‌های نقش او نیز اعتبار دارند.</p>
             <div className="role-permission-grid">
               {PERMISSION_GROUPS.map(group=>{
                 const options=group.permissions.filter(([key])=>PRIVILEGED_ACTION_KEYS.includes(key));
@@ -3674,14 +3675,14 @@ function RolesPage({access,employees, demoLoginEnabled,onActivateDemoLogin,onIss
             <div className="demo-password-row"><input type="text" autoComplete="off" minLength={8} value={userDraft.password} onChange={e=>setUserDraft({...userDraft,password:e.target.value})} placeholder="رمز موقت را بسازید"/><button type="button" className="btn secondary" onClick={()=>{const password=makeTemporaryPassword();setUserDraft({...userDraft,password,confirmPassword:password})}}><LockKeyhole size={15}/> ساخت رمز</button></div>
           </label>
           {userDraft.password && <label>تکرار رمز موقت<input type="text" value={userDraft.confirmPassword} onChange={e=>setUserDraft({...userDraft,confirmPassword:e.target.value})}/></label>}
-          {userDraft.password && <button type="button" className="btn secondary demo-copy-btn" onClick={()=>navigator.clipboard?.writeText(`نام کاربری: ${userDraft.username}\nرمز موقت: ${userDraft.password}`)}><ClipboardList size={16}/> کاپی معلومات ورود (فقط برای فرستادن خصوصی)</button>}
+          {userDraft.password && <button type="button" className="btn secondary demo-copy-btn" onClick={()=>navigator.clipboard?.writeText(`نام کاربر: ${userDraft.username}\nرمز موقت: ${userDraft.password}`)}><ClipboardList size={16}/> کاپی معلومات ورود (فقط برای فرستادن خصوصی)</button>}
           <div className="work-schedule-panel">
             <h4><Clock3 size={17}/> محدودیت ساعت کاری — به وقت افغانستان</h4>
             <div className="schedule-grid">
               <label>شروع شیفت<input type="time" required value={userDraft.shiftStart} onChange={e=>setUserDraft(prev=>({...prev,shiftStart:e.target.value,extraUntil:''}))}/></label>
               <label>ختم شیفت<input type="time" required value={userDraft.shiftEnd} onChange={e=>setUserDraft(prev=>({...prev,shiftEnd:e.target.value,extraUntil:''}))}/></label>
             </div>
-            <small>به‌گونهٔ پیش‌فرض کارمند از ساعت ۰۸:۰۰ تا ۲۰:۰۰ وارد می‌شود. مدیر سیستم همیشه دسترسی دارد. با تغییر ساعت شیفت، اجازهٔ اضافی قبلی پاک می‌شود تا اشتباهاً کارمند پس از شیفت وارد نشود.</small>
+            <small>در حالت عادی کارمند از ساعت ۰۸:۰۰ تا ۲۰:۰۰ وارد می‌شود. مدیر سیستم همیشه دسترسی دارد. با تغییر ساعت شیفت، اجازهٔ اضافی قبلی پاک می‌شود تا اشتباهاً کارمند پس از شیفت وارد نشود.</small>
             <label>اجازهٔ اضافی تا تاریخ و ساعت مشخص (وقت افغانستان)
               <input type="datetime-local" dir="ltr" value={userDraft.extraUntil||''} onChange={e=>setUserDraft({...userDraft,extraUntil:e.target.value})}/>
             </label>
@@ -3754,7 +3755,7 @@ function AfghanHeaderCalendar({data,todayLabel,canView,onNavigate,onClose}) {
     <div className="calendar-transactions"><strong>فعالیت‌های {dateParts?`${number(dateParts.day)} ${afghanMonths[dateParts.month-1]} ${number(dateParts.year)}`:selected}</strong>
       {transactions.length ? transactions.slice(0,8).map((x,i)=><button type="button" key={i} onClick={()=>onNavigate(x.page,x.label)}><span>{x.label}</span><small>{x.kind}{x.amount?` • ${money(x.amount)}`:''}</small></button>) : <p>در این تاریخ فروش، خرید یا سند ثبت نشده است.</p>}
     </div>
-    <small className="calendar-local-info">تاریخ هجری شمسی — معلومات از همین مرورگر خوانده می‌شود.</small>
+    <small className="calendar-local-info">تاریخ هجری شمسی — معلومات از همین براوزر خوانده می‌شود.</small>
   </div>;
 }
 
@@ -3767,7 +3768,7 @@ function BusinessLogoPicker({logo,shopName,onChange,disabled=false,onBusyChange,
     if(!file)return;
     setError('');setBusy(true);onBusyChange?.(true);
     try {onChange(await readBusinessLogo(file));}
-    catch(err) {setError(err?.message || 'بارگذاری عکس انجام نشد.');}
+    catch(err) {setError(err?.message || 'آپلود عکس انجام نشد.');}
     finally {setBusy(false);onBusyChange?.(false);}
   };
   return <div className="business-logo-picker">
@@ -3812,15 +3813,15 @@ function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
   };
   return <div className="demo-login-page" dir="rtl"><div className="demo-login-card fresh-start-card">
     <div className="demo-login-icon"><ShieldCheck size={27}/></div>
-    <div className="demo-login-brow">راه‌اندازی عمده‌فروشی</div>
+    <div className="demo-login-brow">شروع عمده‌فروشی</div>
     {setupResult ? <>
-      <div className="setup-steps"><span className="step-done">۱. ساخت حساب</span><span className="step-active">۲. کد بازیابی</span><span>۳. ورود</span></div>
+      <div className="setup-steps"><span className="step-done">۱. ساخت حساب</span><span className="step-active">۲. کود بازگردانی</span><span>۳. ورود</span></div>
       <h1>حساب مدیر ساخته شد</h1>
-      <p>کد بازیابی را در جای محفوظ یادداشت کنید. اگر رمز را فراموش کردید، با همین کد می‌توانید رمز تازه بسازید.</p>
-      <div className="recovery-code-panel"><strong>نام کاربری: <span dir="ltr">{setupResult.username}</span></strong><code dir="ltr">{setupResult.recoveryCode}</code><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(setupResult.recoveryCode)}><ClipboardList size={16}/> کاپی کد بازیابی</button></div>
+      <p>کود بازگردانی را در جای محفوظ یادداشت کنید. اگر رمز را فراموش کردید، با همین کود می‌توانید رمز تازه بسازید.</p>
+      <div className="recovery-code-panel"><strong>نام کاربر: <span dir="ltr">{setupResult.username}</span></strong><code dir="ltr">{setupResult.recoveryCode}</code><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(setupResult.recoveryCode)}><ClipboardList size={16}/> کاپی کود بازگردانی</button></div>
       <button className="btn primary login-back-button" type="button" onClick={onContinue}><LogOut size={17}/> رفتن به صفحه ورود</button>
     </> : <>
-      <div className="setup-steps"><span className="step-active">۱. ساخت حساب</span><span>۲. کد بازیابی</span><span>۳. ورود</span></div>
+      <div className="setup-steps"><span className="step-active">۱. ساخت حساب</span><span>۲. کود بازگردانی</span><span>۳. ورود</span></div>
       <h1>ساخت عمده‌فروشی جدید</h1>
       <p>ابتدا نام عمده‌فروشی و حساب مدیر سیستم را بسازید. برنامه با ریکاردهای خالی آغاز می‌شود.</p>
       <form className="demo-login-form" onSubmit={submit}>
@@ -3829,7 +3830,7 @@ function DemoFirstSetup({shopName,onSetup,setupResult,onContinue}) {
         <label>پول آغازین صندوق نقدی (افغانی)<GroupedNumberInput  min="0" step="0.01" inputMode="decimal" value={openingCash} onChange={e=>setOpeningCash(e.target.value)} required/><small>پول نقدی که در آغاز فعالیت داخل صندوق دارید؛ برای شروع از صفر، ۰ وارد کنید.</small></label>
         <ThemeSettingsControls value={setupAppearance} onChange={setSetupAppearance} compact/>
         <label>نام و تخلص مدیر<input required maxLength={80} value={adminName} onChange={e=>setAdminName(e.target.value)} placeholder="نام مدیر سیستم"/></label>
-        <label>نام کاربری مدیر<input dir="ltr" required value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} autoComplete="username"/></label>
+        <label>نام کاربر مدیر<input dir="ltr" required value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} autoComplete="username"/></label>
         <label>رمز مدیر<div className="login-password-control"><input dir="ltr" required type={showPassword?'text':'password'} minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="حداقل ۸ حرف یا عدد"/><button className="password-eye" type="button" onClick={()=>setShowPassword(x=>!x)} aria-label={showPassword?'پنهان کردن رمز':'نمایش رمز'}>{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></label>
         <label>تکرار رمز<input dir="ltr" required type={showPassword?'text':'password'} minLength={8} autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>
         {message&&<p className="form-error" role="alert">{message}</p>}
@@ -3845,7 +3846,7 @@ function DemoShiftClosed({shopName,user,status,onLogout,preview=false,now=new Da
     <h1>{preview?'کارمند در این ساعت اجازهٔ ورود ندارد':'دسترسی بیرون از وقت کاری بسته است'}</h1>
     <p>{user?.name}، {status.reason}</p>
     <div className="info-note">وقت فعلی افغانستان: <strong dir="ltr">{kabulLocalDateTime(now).replace('T',' ')}</strong></div>
-    <p>{preview?'این پیش‌نمایش مطابق ساعت کاری کارمند بسته است. مدیر می‌تواند به پنل مدیریت برگردد یا اجازهٔ اضافی بدهد.':'مدیر سیستم می‌تواند در بخش «نقش‌ها و صلاحیت‌ها» برای شما دسترسی اضافی تا ساعت مشخص تعیین کند.'}</p>
+    <p>{preview?'این نمایش آزمایشی مطابق ساعت کاری کارمند بسته است. مدیر می‌تواند به پنل مدیریت برگردد یا اجازهٔ اضافی بدهد.':'مدیر سیستم می‌تواند در بخش «نقش‌ها و صلاحیت‌ها» برای شما دسترسی اضافی تا ساعت مشخص تعیین کند.'}</p>
     <button className="btn primary login-back-button" type="button" onClick={onLogout}><LogOut size={17}/>{preview?'بازگشت به مدیر سیستم':'خروج از حساب'}</button>
   </div></div>;
 }
@@ -3862,7 +3863,7 @@ function DemoLoginScreen({shopName,onLogin,onRecover}) {
   const [busy,setBusy]=useState(false);
   const submitLogin=async event=>{
     event.preventDefault();setMessage('');setBusy(true);
-    try {const result=await onLogin(username,password);if(!result?.ok)setMessage(result?.message||'نام کاربری یا رمز اشتباه است، یا حساب غیرفعال شده است.');}
+    try {const result=await onLogin(username,password);if(!result?.ok)setMessage(result?.message||'نام کاربر یا رمز اشتباه است، یا حساب غیرفعال شده است.');}
     catch {setMessage('امکان ورود موجود نیست.');}
     finally {setBusy(false);setPassword('');}
   };
@@ -3873,38 +3874,38 @@ function DemoLoginScreen({shopName,onLogin,onRecover}) {
     setBusy(true);
     try {
       const result=await onRecover(username,code,newPassword);
-      if(!result?.ok) setMessage('کد بازیابی اشتباه یا منقضی شده است. از مدیر سیستم کد تازه بگیرید.');
+      if(!result?.ok) setMessage('کود بازگردانی اشتباه یا منقضی شده است. از مدیر سیستم کود تازه بگیرید.');
       else {setNewAdminCode(result.newAdminCode||'');setCode('');setPassword('');setNewPassword('');setConfirmPassword('');setView('success');}
-    } catch {setMessage('بازیابی رمز انجام نشد.');}
+    } catch {setMessage('بازگردانی رمز انجام نشد.');}
     finally {setBusy(false);}
   };
   return <div className="demo-login-page" dir="rtl"><div className="demo-login-card">
     <div className="demo-login-icon"><LockKeyhole size={27}/></div>
-    <div className="demo-login-brow">سامانه مدیریت عمده‌فروشی افغانستان</div>
-    <h1>{view==='login'?`ورود به ${shopName}`:view==='recover'?'بازیابی رمز ورود':'رمز شما تغییر کرد'}</h1>
+    <div className="demo-login-brow">سیستم مدیریت عمده‌فروشی افغانستان</div>
+    <h1>{view==='login'?`ورود به ${shopName}`:view==='recover'?'بازگردانی رمز ورود':'رمز شما تغییر کرد'}</h1>
     {view==='login' ? <>
-      <p>با نام کاربری و رمز که مدیر سیستم به شما داده است وارد شوید. ساعت کاری با <strong>وقت افغانستان</strong> بررسی می‌شود.</p>
+      <p>با نام کاربر و رمز که مدیر سیستم به شما داده است وارد شوید. ساعت کاری با <strong>وقت افغانستان</strong> بررسی می‌شود.</p>
       <form onSubmit={submitLogin} className="demo-login-form">
-        <label>نام کاربری<input autoFocus dir="ltr" required autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="ahmad01"/></label>
+        <label>نام کاربر<input autoFocus dir="ltr" required autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="ahmad01"/></label>
         <label>رمز ورود<div className="login-password-control"><input dir="ltr" required type={showPassword?'text':'password'} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="رمز ورود"/><button type="button" className="password-eye" aria-label={showPassword?'پنهان کردن رمز':'نمایش رمز'} onClick={()=>setShowPassword(x=>!x)}>{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></label>
         {message&&<p role="alert" className="form-error">{message}</p>}
         <button className="btn primary" type="submit" disabled={busy}><LogOut size={17}/> {busy?'بررسی...':'ورود به برنامه'}</button>
       </form>
       <button type="button" className="login-text-link" onClick={()=>{setView('recover');setMessage('')}}><KeyRound size={16}/> رمز را فراموش کرده‌ام</button>
     </> : view==='recover' ? <>
-      <p>اگر رمز را فراموش کردید، از مدیر سیستم یک <strong>کد بازیابی</strong> بگیرید. سپس در همین مرورگر رمز تازه تعیین کنید.</p>
+      <p>اگر رمز را فراموش کردید، از مدیر سیستم یک <strong>کود بازگردانی</strong> بگیرید. سپس در همین براوزر رمز تازه تعیین کنید.</p>
       <form onSubmit={submitRecovery} className="demo-login-form">
-        <label>نام کاربری<input autoFocus dir="ltr" required autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="ahmad01"/></label>
-        <label>کد بازیابی (از مدیر سیستم)<input dir="ltr" required value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="AF-XXXX-XXXX-XXXX-XXXX" autoComplete="off"/></label>
+        <label>نام کاربر<input autoFocus dir="ltr" required autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} placeholder="ahmad01"/></label>
+        <label>کود بازگردانی (از مدیر سیستم)<input dir="ltr" required value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="AF-XXXX-XXXX-XXXX-XXXX" autoComplete="off"/></label>
         <label>رمز تازه<input dir="ltr" required minLength={8} type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)}/></label>
         <label>تکرار رمز تازه<input dir="ltr" required minLength={8} type="password" autoComplete="new-password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)}/></label>
         {message&&<p role="alert" className="form-error">{message}</p>}
-        <button disabled={busy} className="btn primary" type="submit"><KeyRound size={17}/> {busy?'بررسی کد...':'تغییر رمز با کد بازیابی'}</button>
+        <button disabled={busy} className="btn primary" type="submit"><KeyRound size={17}/> {busy?'بررسی کود...':'تغییر رمز با کود بازگردانی'}</button>
       </form>
       <button type="button" className="login-text-link" onClick={()=>{setView('login');setMessage('')}}><ChevronRight size={16}/> بازگشت به ورود</button>
     </> : <>
       <p>اکنون می‌توانید با رمز تازه وارد برنامه شوید.</p>
-      {newAdminCode && <div className="recovery-code-panel" role="status"><strong>کد بازیابی تازه مدیر — این کد را خصوصی ذخیره کنید</strong><code dir="ltr">{newAdminCode}</code><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(newAdminCode)}>کاپی کد تازه</button></div>}
+      {newAdminCode && <div className="recovery-code-panel" role="status"><strong>کود بازگردانی تازه مدیر — این کود را خصوصی ذخیره کنید</strong><code dir="ltr">{newAdminCode}</code><button type="button" className="btn secondary" onClick={()=>navigator.clipboard?.writeText(newAdminCode)}>کاپی کود تازه</button></div>}
       <button type="button" className="btn primary login-back-button" onClick={()=>{setView('login');setMessage('');setNewAdminCode('')}}>بازگشت به صفحه ورود</button>
     </>}
   </div></div>;
@@ -3962,10 +3963,10 @@ function SettingsPasswordDialog({challenge,onCancel,onApprove}) {
             <button type="button" title={visible?'پنهان کردن رمز':'نمایش رمز'} aria-label={visible?'پنهان کردن رمز':'نمایش رمز'} onClick={()=>setVisible(v=>!v)}>{visible?<EyeOff size={18}/>:<Eye size={18}/>}</button>
           </span>
         </label>
-        {challenge.destructive && <label className="settings-danger-ack"><input type="checkbox" checked={acknowledged} onChange={e=>setAcknowledged(e.target.checked)}/> می‌دانم این کار برگشت‌پذیر نیست و مسئولیت پاک‌شدن معلومات را می‌پذیرم.</label>}
+        {challenge.destructive && <label className="settings-danger-ack"><input type="checkbox" checked={acknowledged} onChange={e=>setAcknowledged(e.target.checked)}/> می‌دانم این کار برگشت‌پذیر نیست و مسوولیت پاک‌شدن معلومات را می‌پذیرم.</label>}
         {error && <p role="alert" className="form-error">{error}</p>}
         <div className="settings-password-actions">
-          <button type="button" className="btn secondary" disabled={busy} onClick={onCancel}>انصراف</button>
+          <button type="button" className="btn secondary" disabled={busy} onClick={onCancel}>لغو</button>
           <button type="submit" className={`btn ${challenge.destructive?'settings-confirm-danger':'primary'}`} disabled={busy || !password || (challenge.destructive&&!acknowledged)}>
             <LockKeyhole size={16}/> {busy?'در حال بررسی...':challenge.destructive?'تأیید رمز و اجرای عملیات':'تأیید رمز و ذخیره'}
           </button>
@@ -4005,7 +4006,7 @@ function IdentityScanField({value,onChange,onBusyChange}) {
       if(!active||!result?.blob)return;
       url=URL.createObjectURL(result.blob);
       setViewUrl(url);
-    }).catch(()=>{if(active)setError('فایل قبلی در حافظه همین مرورگر پیدا نشد.');});
+    }).catch(()=>{if(active)setError('فایل قبلی در حافظه همین براوزر پیدا نشد.');});
     else setViewUrl('');
     return ()=>{active=false;if(url)URL.revokeObjectURL(url);};
   },[value?.id]);
@@ -4018,9 +4019,9 @@ function IdentityScanField({value,onChange,onBusyChange}) {
   };
   return <div className="identity-scan-field">
     <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={upload} disabled={busy} aria-label="آپلود عکس یا سکن تذکره"/>
-    <small>{busy?'در حال ذخیره فایل...':'JPG / PNG / WebP / PDF، حداکثر ۸ MB؛ در حافظه همین مرورگر حفظ می‌شود.'}</small>
+    <small>{busy?'در حال ذخیره فایل...':'JPG / PNG / WebP / PDF، حداکثر ۸ MB؛ در حافظه همین براوزر حفظ می‌شود.'}</small>
     {value?.id && <div className="identity-scan-preview">
-      {viewUrl && value.mime!=='application/pdf' ? <img alt="پیش‌نمایش سکن تذکره" src={viewUrl}/> : <FileText size={20}/>}
+      {viewUrl && value.mime!=='application/pdf' ? <img alt="نمایش آزمایشی سکن تذکره" src={viewUrl}/> : <FileText size={20}/>}
       <span>{value.name||'سند هویت'}</span>
       {viewUrl&&<a className="btn secondary" href={viewUrl} target="_blank" rel="noopener noreferrer" download={value.name||'identity-scan'}>دیدن / ذخیره</a>}
       <button className="btn secondary" type="button" onClick={()=>onChange(null)}>حذف از فورم</button>
@@ -4051,7 +4052,7 @@ function SettingsPage({ preferences, years, data, appearance, onSaveAppearance, 
     <Panel title="معلومات عمده‌فروشی">
       <form className="business-settings-form" onSubmit={save}>
         <label>نام عمده‌فروشی
-          <input type="text" required disabled={!canManage} maxLength={90} value={shopName} onChange={event=>setShopName(event.target.value)} placeholder="نام فروشگاه یا شرکت شما" />
+          <input type="text" required disabled={!canManage} maxLength={90} value={shopName} onChange={event=>setShopName(event.target.value)} placeholder="نام دکان یا شرکت شما" />
           <small>این نام در بالای منوی سمت راست و پایین برنامه نمایش داده می‌شود.</small>
         </label>
         <BusinessLogoPicker inputId="settings-business-logo" logo={shopLogo} shopName={shopName} onChange={setShopLogo} onBusyChange={setLogoBusy} disabled={!canManage}/>
@@ -4061,7 +4062,7 @@ function SettingsPage({ preferences, years, data, appearance, onSaveAppearance, 
           </select>
           <small>این انتخاب در مقایسهٔ خریداری‌ها، فروشات و ارقام سالانهٔ داشبورد استفاده می‌شود.</small>
         </label>
-        <label>پول آغازین صندوق نقدی (افغانی)<GroupedNumberInput  min="0" step="0.01" value={openingCash} onChange={e=>setOpeningCash(e.target.value)} disabled={!canManage}/><small>موجودی هنگام راه‌اندازی فروشگاه؛ تغییر آن با تأیید رمز مدیر انجام می‌شود.</small></label>
+        <label>پول آغازین صندوق نقدی (افغانی)<GroupedNumberInput  min="0" step="0.01" value={openingCash} onChange={e=>setOpeningCash(e.target.value)} disabled={!canManage}/><small>موجودی هنگام شروع دکان؛ تغییر آن با تأیید رمز مدیر انجام می‌شود.</small></label>
         {canManage && <div className="business-settings-actions"><button className="btn primary" type="submit" disabled={logoBusy}><Save size={17}/> ذخیره تنظیمات</button></div>}
       </form>
     </Panel>
@@ -4092,8 +4093,8 @@ function SettingsPage({ preferences, years, data, appearance, onSaveAppearance, 
     {canManage && <Panel title="مدیریت معلومات">
       <p className="settings-muted-info">پاک‌کردن معاملات، معلومات حساب مدیر و نام عمده‌فروشی را حفظ می‌کند. برای این کار تأیید رمز ضروری است.</p>
       <button className="btn secondary" type="button" onClick={onClearTransactions}><RotateCcw size={16}/> پاک‌کردن معاملات</button>
-      <p className="settings-muted-info">راه‌اندازی دوباره تمام معلومات این نسخه، به شمول حساب‌ها و معاملات را پاک می‌کند. قبل از آن باید پیام را خوانده و رمز را وارد کنید.</p>
-      <button className="btn secondary" type="button" onClick={onResetBusiness}><RotateCcw size={16}/> راه‌اندازی دوباره از صفر</button>
+      <p className="settings-muted-info">شروع دوباره تمام معلومات این نسخه، به شمول حساب‌ها و معاملات را پاک می‌کند. قبل از آن باید پیام را خوانده و رمز را وارد کنید.</p>
+      <button className="btn secondary" type="button" onClick={onResetBusiness}><RotateCcw size={16}/> شروع دوباره از صفر</button>
     </Panel>}
   </div>;
 }
@@ -4106,7 +4107,7 @@ function DocumentDesignSettings({kind,preferences,canManage,onSave}){
   useEffect(()=>setDraft(normalizeDocumentDesign(stored)),[stored]);
   const update=(key,value)=>setDraft(prev=>({...prev,[key]:value}));
   const title=kind==='bill'?'طرح چاپ بل‌های فروش و خرید — بل ۱ (Minimal Navy)':'طرح چاپ قرارداد — قرارداد ۱ (Clean Blue)';
-  const logoLabel=kind==='bill'?'بارگذاری لوگوی بل‌های فروش و خرید (بل ۱)':'بارگذاری لوگوی قرارداد (قرارداد ۱)';
+  const logoLabel=kind==='bill'?'آپلود لوگوی بل‌های فروش و خرید (بل ۱)':'آپلود لوگوی قرارداد (قرارداد ۱)';
   const setPrintLogo=logo=>setDraft(prev=>({...prev,logo,logoMode:logo?'custom':preferences.shopLogo?'shop':'none'}));
   const previewPrefs={...preferences,[field]:draft};
   const design=resolveDocumentDesign(previewPrefs,kind);
@@ -4116,20 +4117,20 @@ function DocumentDesignSettings({kind,preferences,canManage,onSave}){
     else printHtml(contractPrintHtml(contractSnapshot({name:'مشتری نمونه',saleContract:{enabled:true}},previewPrefs,invoice),null,preferences.calendarMode,previewPrefs));
   };
   return <Panel title={title}><div className="business-settings-form">
-    <p className="settings-muted-info">{kind==='bill'?'این طرح با الهام از بل ۱ ساخته شده است: زمینهٔ سفید، حاشیه و سربرگ آبی، جدول واضح اجناس، رنگ دلخواه، متن‌های قابل ویرایش و محل لوگو.':'این طرح با الهام از قرارداد ۱ ساخته شده است: سبک تمیز آبی، بخش‌های شماره‌دار، رنگ دلخواه، متن‌های قابل ویرایش و محل لوگو.'}</p>
+    <p className="settings-muted-info">{kind==='bill'?'این طرح با الهام از بل ۱ ساخته شده است: زمینهٔ سفید، حاشیه و سربرگ آبی، جدول واضح اجناس، رنگ دلخواه، متن‌های قابل اصلاح و محل لوگو.':'این طرح با الهام از قرارداد ۱ ساخته شده است: سبک تمیز آبی، بخش‌های نمبر‌دار، رنگ دلخواه، متن‌های قابل اصلاح و محل لوگو.'}</p>
     <label>رنگ چاپ<select disabled={!canManage} value={['#214661','#165f4c','#574180','#3e4147'].includes(draft.color)?draft.color:'custom'} onChange={e=>{if(e.target.value==='custom') update('color','#007aff');else update('color',e.target.value);}}><option value="#214661">آبی رسمی</option><option value="#165f4c">سبز</option><option value="#574180">بنفش</option><option value="#3e4147">خاکستری</option><option value="custom">رنگ دلخواه</option></select></label>
     <label>انتخاب رنگ دلخواه<input type="color" value={draft.color} disabled={!canManage} onChange={e=>update('color',e.target.value)}/></label>
     <div className="print-logo-section">
       <h3>{kind==='bill'?'لوگوی بل‌های فروش و خرید':'لوگوی قرارداد مشتریان'}</h3>
       <p className="settings-muted-info">{kind==='bill'?'این عکس در بالای هر دو بل فروش و خرید چاپ می‌شود.':'این عکس در بالای قرارداد چاپ می‌شود.'} برای این سند می‌توانید لوگوی جداگانه انتخاب کنید.</p>
       <BusinessLogoPicker inputId={`print-logo-${kind}`} logo={draft.logo} shopName={preferences.shopName} disabled={!canManage} onChange={setPrintLogo} onBusyChange={setBusy} label={logoLabel} help="عکس JPG، PNG یا WebP؛ حداکثر ۵ MB. با انتخاب عکس، لوگوی چاپ به‌صورت خودکار انتخاب می‌شود." printLogo/>
-      <label>لوگو در نسخه چاپی<select disabled={!canManage||busy} value={draft.logoMode} onChange={e=>update('logoMode',e.target.value)}><option value="shop">استفاده از لوگوی اصلی عمده‌فروشی (منو)</option><option value="custom" disabled={!draft.logo}>استفاده از عکس بارگذاری‌شده در بالا</option><option value="none">چاپ بدون لوگو</option></select></label>
-      {draft.logoMode==='shop'&&!preferences.shopLogo&&<small>لوگوی اصلی هنوز انتخاب نشده است. عکس را در همین بخش بارگذاری کنید یا در معلومات عمده‌فروشی لوگوی اصلی را اضافه کنید.</small>}
+      <label>لوگو در نسخه چاپی<select disabled={!canManage||busy} value={draft.logoMode} onChange={e=>update('logoMode',e.target.value)}><option value="shop">استفاده از لوگوی اصلی عمده‌فروشی (منو)</option><option value="custom" disabled={!draft.logo}>استفاده از عکس آپلودشده در بالا</option><option value="none">چاپ بدون لوگو</option></select></label>
+      {draft.logoMode==='shop'&&!preferences.shopLogo&&<small>لوگوی اصلی هنوز انتخاب نشده است. عکس را در همین بخش آپلود کنید یا در معلومات عمده‌فروشی لوگوی اصلی را اضافه کنید.</small>}
       {draft.logoMode==='custom'&&!draft.logo&&<small>برای چاپ لوگوی جداگانه، ابتدا عکس را انتخاب کنید.</small>}
-      <strong className="print-logo-preview-title">پیش‌نمایش سربرگ چاپ</strong>
+      <strong className="print-logo-preview-title">نمایش آزمایشی سربرگ چاپ</strong>
       <div className="document-design-preview" style={{borderColor:design.color}}><div>{design.logo?<img src={design.logo} alt="لوگوی چاپ"/>:<small>بدون لوگو</small>}<strong>{preferences.shopName}</strong></div><span style={{background:themeColors(design.color,'light').buttonBg,color:'#fff'}}>{kind==='bill'?'جزئیات بل — نمونه':'مشخصات قرارداد — نمونه'}</span></div>
     </div>
-    <div className="business-settings-actions"><button type="button" className="btn secondary" onClick={preview} disabled={busy||(draft.logoMode==='custom'&&!draft.logo)}><Printer size={16}/> پیش‌نمایش چاپ</button>{canManage&&<button type="button" className="btn primary" disabled={busy||(draft.logoMode==='custom'&&!draft.logo)} onClick={()=>onSave({[field]:normalizeDocumentDesign(draft)})}><Save size={16}/> ذخیره طرح چاپ</button>}</div>
+    <div className="business-settings-actions"><button type="button" className="btn secondary" onClick={preview} disabled={busy||(draft.logoMode==='custom'&&!draft.logo)}><Printer size={16}/> نمایش آزمایشی چاپ</button>{canManage&&<button type="button" className="btn primary" disabled={busy||(draft.logoMode==='custom'&&!draft.logo)} onClick={()=>onSave({[field]:normalizeDocumentDesign(draft)})}><Save size={16}/> ذخیره طرح چاپ</button>}</div>
     <small>ذخیره طرح مستلزم تأیید رمز مدیر است. رنگ برنامه تغییر نمی‌کند.</small>
   </div></Panel>;
 }
@@ -4157,22 +4158,22 @@ function ProfilePage({preferences,onSave,onNavigate,canEdit=true,roleName=''}) {
         <div className="business-settings-actions"><button className="btn primary" type="submit"><Save size={17}/> ذخیره پروفایل</button></div>
       </form>}
     </Panel>
-    <p className="info-note">صلاحیت‌های نقش در صفحه «مدیریت → نقش‌ها و صلاحیت‌ها» تنظیم می‌شوند. این نسخه ورود امن ندارد؛ مدیریت دسترسی فعلاً نمایشی و در همین مرورگر است.</p>
+    <p className="info-note">صلاحیت‌های نقش در صفحه «مدیریت → نقش‌ها و صلاحیت‌ها» تنظیم می‌شوند. این نسخه ورود امن ندارد؛ مدیریت دسترسی فعلاً نمایشی و در همین براوزر است.</p>
   </>;
 }
 
 const helpSections = [
   {title:"ثبت بل فروش و دریافت پول", icon:Receipt, target:"sales", description:"در «بل‌های فروش» بل بسازید؛ برای بل‌های قرضه از گزینهٔ «ثبت دریافت پول» استفاده کنید تا مانده کم شود."},
-  {title:"مشتریان بدهکار", icon:Users, target:"debtors", description:"بل‌های پرداخت‌نشده را ببینید. پس از دریافت تمام مبلغ، بل از فهرست بدهکاران خارج می‌شود."},
+  {title:"مشتریان قرضدار", icon:Users, target:"debtors", description:"بل‌های پرداخت‌نشده را ببینید. پس از دریافت تمام مبلغ، بل از فهرست قرضداران خارج می‌شود."},
   {title:"ثبت خریداری", icon:ShoppingCart, target:"purchases", description:"بل خرید ثبت کنید؛ تعداد جنس خریداری‌شده به موجودی گدام اضافه می‌شود."},
-  {title:"گدام و موجودی", icon:Warehouse, target:"warehouseDashboard", description:"موجودی، حرکت جنس و انتقال میان گدام‌ها را بررسی کنید. نقطهٔ سفارش هر محصول را در صفحهٔ محصولات تعیین کنید."},
+  {title:"گدام و موجودی", icon:Warehouse, target:"warehouseDashboard", description:"موجودی، حرکت جنس و انتقال میان گدام‌ها را بررسی کنید. حداقل موجودی برای خرید هر محصول را در صفحهٔ محصولات تعیین کنید."},
   {title:"معاشات و دستمزد", icon:Wallet, target:"payroll", description:"برای کارمند معاش ماهانه محاسبه و ثبت کنید؛ سپس پرداخت آن را ثبت کنید."},
   {title:"گزارش‌ها", icon:FileBarChart, target:"reports", description:"گزارش بل‌ها، مصارف و معاشات را مشاهده، فلتر، چاپ یا به CSV صادر کنید."},
-  {title:"تنظیمات", icon:Settings, target:"settings", description:"نام عمده‌فروشی و سال مالی را تغییر دهید. پروفایل کاربر از بخش پایین منو قابل ویرایش است."},
+  {title:"تنظیمات", icon:Settings, target:"settings", description:"نام عمده‌فروشی و سال مالی را تغییر دهید. پروفایل کاربر از بخش پایین منو قابل اصلاح است."},
 ];
 function HelpPage({onNavigate,canView=()=>true}) {
   return <>
-    <PageHeading title="راهنمای سامانه" description="راهنمای بخش‌های برنامه و روش استفاده از آن‌ها" />
+    <PageHeading title="راهنمای سیستم" description="راهنمای بخش‌های برنامه و روش استفاده از آن‌ها" />
     <div className="help-guide-grid">
       {helpSections.filter(section=>canView(section.target)).map(section => {
         const Icon = section.icon;
@@ -4183,7 +4184,7 @@ function HelpPage({onNavigate,canView=()=>true}) {
         </section>;
       })}
     </div>
-    <p className="info-note">این نسخهٔ React برای نمایش به مشتری آماده شده است. معلومات فقط در همین مرورگر ذخیره می‌شوند؛ بخش ورود کاربران و دیتابیس مشترک هنوز موجود نیست.</p>
+    <p className="info-note">این نسخهٔ React برای نمایش به مشتری آماده شده است. معلومات فقط در همین براوزر ذخیره می‌شوند؛ بخش ورود کاربران و دیتابیس مشترک هنوز موجود نیست.</p>
   </>;
 }
 
@@ -4223,7 +4224,7 @@ function PayrollForm({data,form,setForm,onSubmit,onCancel}) {
       <label>کارمند<select value={form.employeeId || ''} required onChange={e=>{
         const employee=data.employees.find(x=>String(x.id)===String(e.target.value));
         setForm(p=>({...p,employeeId:e.target.value,base:String(employee?.salary||0)}));
-      }}><option value="">کارمند را انتخاب کنید</option>{data.employees.map(e=><option key={e.id} value={e.id}>{e.firstName} {e.lastName} — {e.employeeCode||'بدون کد'}</option>)}</select></label>
+      }}><option value="">کارمند را انتخاب کنید</option>{data.employees.map(e=><option key={e.id} value={e.id}>{e.firstName} {e.lastName} — {e.employeeCode||'بدون کود'}</option>)}</select></label>
       {gregorian? <label>ماه معاش (میلادی)<input type="month" required value={form.periodGregorian||gregorianFromAfghan(form.date||afghanKabulToday()).slice(0,7)} onChange={e=>{
         const value=e.target.value;
         const [y,m]=afghanFromGregorian(`${value}-01`).split('/').map(Number);
@@ -4239,7 +4240,7 @@ function PayrollForm({data,form,setForm,onSubmit,onCancel}) {
     </div>
     <div className="payment-summary-grid"><div className="payment-summary-item"><span>ناخالص</span><strong>{money(total.gross)}</strong></div>
       <div className="payment-summary-item"><span>خالص قابل پرداخت</span><strong>{money(total.net)}</strong></div></div>
-    <div className="modal-actions"><button type="button" className="btn secondary" onClick={onCancel}>لغو</button><button type="submit" className="btn primary"><Save size={16}/> ثبت برگه معاش</button></div>
+    <div className="modal-actions"><button type="button" className="btn secondary" onClick={onCancel}>لغو</button><button type="submit" className="btn primary"><Save size={16}/> ثبت فورم معاش</button></div>
   </form>;
 }
 
@@ -4275,7 +4276,7 @@ function AfghanDatePicker({value='', onChange, required=false}) {
 function choicesForField(config,key) {
   if (key === 'type') {
     if (config.title === 'مشتریان') return AFGHAN_FIELD_CHOICES.customerType;
-    if (config.title === 'سرفصل‌های حساب') return AFGHAN_FIELD_CHOICES.accountType;
+    if (config.title === 'عنوان‌های حساب') return AFGHAN_FIELD_CHOICES.accountType;
     return null;
   }
   return AFGHAN_FIELD_CHOICES[key] || null;
@@ -4302,8 +4303,8 @@ function EntityForm({ config, form, setForm, data, access, preferences, onSubmit
                 {chosenManagerId && chosenManagerId==='__legacy__' && <option value="__legacy__" disabled>مسوول قبلی: {form.manager} (از فهرست انتخاب شود)</option>}
                 {chosenManagerId && chosenManagerId!=='__legacy__' && !availableManagers.some(person=>String(person.id)===chosenManagerId) && <option value={chosenManagerId} disabled>کارمند قبلی (دیگر فعال نیست)</option>}
               </select>
-              <small>از کارمندانی انتخاب کنید که جایگاه وظیفوی «مسوول گدام» دارند یا در مدیریت کاربران نقش «مسوول گدام» به آن‌ها داده شده است.</small>
-              {!availableManagers.length && <small>هنوز مسوول گدام ثبت نشده است. ابتدا در «کارمندان» جایگاه وظیفوی مسوول گدام را تعیین کنید.</small>}
+              <small>از کارمندانی انتخاب کنید که بست وظیفوی «مسوول گدام» دارند یا در مدیریت کاربران نقش «مسوول گدام» به آن‌ها داده شده است.</small>
+              {!availableManagers.length && <small>هنوز مسوول گدام ثبت نشده است. ابتدا در «کارمندان» بست وظیفوی مسوول گدام را تعیین کنید.</small>}
             </> : key === "group" && config === entityConfigs.products ? <select value={form.group||''} onChange={e=>setForm({...form,group:e.target.value})}>
               <option value="">گروه محصول را انتخاب کنید</option>
               {[...new Set([...(data.groups||[]).map(g=>g.name).filter(Boolean),form.group].filter(Boolean))].map(group=><option key={group} value={group}>{group}</option>)}
@@ -4372,14 +4373,14 @@ function CustomerContractEditor({customer,preferences,onChange,onBusyChange}) {
         {c.preset==='custom'?<label>فیصدی دلخواه پیش‌پرداخت (%)<input type="number" inputMode="decimal" min="0" max="100" step="0.01" required value={c.percent??''} placeholder="مثلاً ۳۵ یا ۶۷٫۵" onChange={e=>update('percent',e.target.value)}/><small>هر فیصدی بین ۰ تا ۱۰۰ را وارد کنید؛ اعشاری هم پذیرفته می‌شود.</small></label>:<label>حداقل پیش‌پرداخت (فیصد)<input type="text" readOnly value={`${number(c.percent)}٪`}/><small>برای وارد کردن فیصدی دیگر، «فیصدی دلخواه» را انتخاب کنید.</small></label>}
         <label>مهلت باقی‌داری (روز)<input type="number" min={Number(c.percent)===100?0:1} max="3650" step="1" required value={c.days} onChange={e=>onChange({...c,preset:'custom',days:e.target.value})}/></label>
       </div><label className="full-label">شرایط توافقی و توضیحات<textarea rows="3" value={c.terms} onChange={e=>update('terms',e.target.value)}/></label>
-      <h4>۴. مشخصات تضمین‌کننده</h4><div className="contract-fields">{[['guarantor','اسم ضامن'],['father','ولد'],['guarantorId','نمبر تذکره'],['guarantorPhone','شماره تماس'],['guarantorJob','وظیفه / کار مشخص']].map(([key,label])=><label key={key}>{label}<input value={c[key]} onChange={e=>update(key,e.target.value)}/></label>)}</div>
+      <h4>۴. مشخصات تضمین‌کننده</h4><div className="contract-fields">{[['guarantor','اسم ضامن'],['father','ولد'],['guarantorId','نمبر تذکره'],['guarantorPhone','نمبر تماس'],['guarantorJob','وظیفه / کار مشخص']].map(([key,label])=><label key={key}>{label}<input value={c[key]} onChange={e=>update(key,e.target.value)}/></label>)}</div>
       <div className="identity-form-field"><strong>عکس / سکن تذکره تضمین‌کننده (اختیاری)</strong><IdentityScanField value={c.guarantorScan} onBusyChange={onBusyChange} onChange={attachment=>onChange(previous=>({...contractDraft(previous),guarantorScan:attachment,guarantorCopy:!!attachment}))}/><small>این سند فقط در معلومات مشتری نگهداری می‌شود و در چاپ بل یا قرارداد نمایش داده نمی‌شود.</small></div>
-      <h4>۵. متن قرارداد و تأیید نهایی — قابل ویرایش</h4>{[['intro','مقدمه'],['payment','تعهد خریدار'],['guarantee','تعهد ضامن'],['delivery','تحویل جنس'],['final','تأیید نهایی']].map(([key,label])=><label key={key} className="full-label">{label}<textarea rows="3" value={c[key]} onChange={e=>update(key,e.target.value)}/></label>)}
+      <h4>۵. متن قرارداد و تأیید نهایی — قابل اصلاح</h4>{[['intro','مقدمه'],['payment','تعهد خریدار'],['guarantee','تعهد ضامن'],['delivery','تحویل جنس'],['final','تأیید نهایی']].map(([key,label])=><label key={key} className="full-label">{label}<textarea rows="3" value={c[key]} onChange={e=>update(key,e.target.value)}/></label>)}
       <div className="contract-fields">{[['representative','نماینده شرکت'],['witness1','شاهد اول'],['witness2','شاهد دوم']].map(([key,label])=><label key={key}>{label}<input value={c[key]} onChange={e=>update(key,e.target.value)}/></label>)}</div>
       <div className="contract-attachments"><label className="contract-check"><input type="checkbox" checked={c.guarantorCopy} onChange={e=>update('guarantorCopy',e.target.checked)}/> کاپی تذکره ضامن ضمیمه است</label><label className="contract-check"><input type="checkbox" checked={c.receipt} onChange={e=>update('receipt',e.target.checked)}/> رسید پرداخت ضمیمه است</label></div>
       <small>جای امضا و شصت در نسخه چاپی است؛ علامت ضمیمه فقط موجودیت سند را نشان می‌دهد؛ عکس تذکره چاپ نمی‌شود.</small>
       {error&&<p className="form-error">{error}</p>}
-      <button type="button" className="btn secondary" disabled={!!error} onClick={()=>printHtml(contractPrintHtml(contractSnapshot({...customer,saleContract:c},preferences,{number:'—',date:afghanKabulToday(),total:0,paid:0,balance:0}),null,calendarMode,preferences))}><Printer size={16}/> پیش‌نمایش / چاپ پیش‌نویس قرارداد</button>
+      <button type="button" className="btn secondary" disabled={!!error} onClick={()=>printHtml(contractPrintHtml(contractSnapshot({...customer,saleContract:c},preferences,{number:'—',date:afghanKabulToday(),total:0,paid:0,balance:0}),null,calendarMode,preferences))}><Printer size={16}/> نمایش آزمایشی / چاپ پیش‌نویس قرارداد</button>
     </>}
   </section>;
 }
@@ -4420,7 +4421,7 @@ function InvoiceForm({
   const removeExtra=id=>setForm(prev=>({...prev,extraExpenses:(prev.extraExpenses||[]).filter(e=>e.id!==id)}));
   const addExtra=()=>{setShowExtras(true);setForm(prev=>({...prev,extraExpenses:[...(prev.extraExpenses||[]),newExtraExpense()] }));};
   const convertInvoiceRow=(item,convert)=>{
-    const next={...item,price:convert(item.price),discount:convert(item.discount||0)};
+    const next={...item,price:convert(item.price,6),discount:convert(item.discount||0)};
     if(item.salePrice!==''&&item.salePrice!=null)next.salePrice=convert(item.salePrice);
     if(item.enteredTotal){
       next.lineTotal=convert(item.lineTotal);
@@ -4441,35 +4442,36 @@ function InvoiceForm({
       }
       return;
     }
-    const hasValues = items.some(i=>(i.catalogPriceAfn==null&&Number(i.price))||Number(i.discount)) || Number(form.paid) || expensesTotal;
+    const hasValues = items.some(i=>(i.catalogPriceAfn==null&&Number(i.price))||Number(i.discount)||Number(i.salePrice)||Number(i.lineTotal)) || Number(form.paid) || expensesTotal;
     let originRate=0, destinationRate=0;
     try {originRate=currencyRate(currency,rates);} catch {}
     try {destinationRate=currencyRate(next,rates);} catch {}
     if(hasValues && (!originRate || !destinationRate)) {
-      if(!originRate) { alert('ابتدا نرخ ارز فعلی بل را درج کنید.'); return; }
+      if(!originRate) { alert('ابتدا نرخ تبادله پول فعلی بل را درج کنید.'); return; }
       // Original amounts are kept until the new rate is entered, avoiding silent currency mistakes.
       setPendingFx({sourceCurrency:currency,targetCurrency:next,sourceRate:originRate,items:items.map(i=>({...i})),paid:form.paid,extraExpenses:(form.extraExpenses||[]).map(e=>({...e}))});
       setForm(prev=>({...prev,currency:next}));
       return;
     }
     if(hasValues) {
-      const convert=value=>value===''?'':String(roundMoney(Number(value)*originRate/destinationRate));
+      const convert=(value,precision=2)=>value===''?'':String(Number((Number(value)*originRate/destinationRate).toFixed(precision)));
       setItems(refreshCatalogPrices(items.map(item=>convertInvoiceRow(item,convert)),destinationRate));
       setForm(prev=>({...prev,currency:next,paid:convert(prev.paid||0),extraExpenses:(prev.extraExpenses||[]).map(e=>({...e,amount:convert(e.amount)}))}));
     } else {setForm(prev=>({...prev,currency:next}));setItems(refreshCatalogPrices(items,destinationRate));}
   };
   const changeSelectedRate = value => {
-    const code=currency;
-    const field=rateFieldFor(code);
+    const field=rateFieldFor(currency);
     if(!field) return;
     setForm(prev=>({...prev,[field]:value}));
-    const rate=Number(value);
-    if(pendingFx && pendingFx.targetCurrency===code && Number.isFinite(rate) && rate>0) {
-      const convert=value=>value===''?'':String(roundMoney(Number(value)*pendingFx.sourceRate/rate));
-      setItems(refreshCatalogPrices(pendingFx.items.map(item=>convertInvoiceRow(item,convert)),rate));
-      setForm(prev=>({...prev,[field]:value,paid:convert(pendingFx.paid||0),extraExpenses:pendingFx.extraExpenses.map(e=>({...e,amount:convert(e.amount)}))}));
-      setPendingFx(null);
-    } else if(!pendingFx) setItems(previous=>refreshCatalogPrices(previous,rate));
+    if(!pendingFx) setItems(previous=>refreshCatalogPrices(previous,Number(value)/quoteUnits(currency)));
+  };
+  const applyPendingFx=()=>{
+    if(!pendingFx || !currentRate) return;
+    const rate=currentRate;
+    const convert=(value,precision=2)=>value===''?'':String(Number((Number(value)*pendingFx.sourceRate/rate).toFixed(precision)));
+    setItems(refreshCatalogPrices(pendingFx.items.map(item=>convertInvoiceRow(item,convert)),rate));
+    setForm(prev=>({...prev,paid:convert(pendingFx.paid||0),extraExpenses:pendingFx.extraExpenses.map(e=>({...e,amount:convert(e.amount)}))}));
+    setPendingFx(null);
   };
   const calendarMode=React.useContext(CalendarModeContext);
   const saleContract=type==='sale'?data.customers.find(c=>c.name===form.party)?.saleContract:null;
@@ -4498,14 +4500,14 @@ function InvoiceForm({
       const product=findProduct(next,data.products||[]);
       if(product && currentRate>0){
         const suggestion=fifoStock(data).suggestedPrice(product.id,form.warehouseId||DEFAULT_WAREHOUSE,Number(next.quantity||1),product.price);
-        next={...next,price:String(roundMoney(suggestion/currentRate)),catalogPriceAfn:suggestion};
+        next={...next,price:String(Number((suggestion/currentRate).toFixed(6))),catalogPriceAfn:suggestion};
       }
     }
     if(type==='sale'&&key==='price')next={...next,manuallyPriced:true};
     return next;
   }));
   return (
-    <form onSubmit={onSubmit} className="invoice-form quickbooks-form">
+    <form onSubmit={event=>{if(pendingFx){event.preventDefault();return;}onSubmit(event);}} className="invoice-form quickbooks-form">
       <section className="invoice-quick-guide">
         <div><strong>روش ساده:</strong> نخست مشتری یا عرضه‌کننده را انتخاب کنید، سپس اقلام بل را وارد کنید، و در پایان مبلغ پرداخت‌شده و توضیحات را ثبت کنید.</div>
         <div className="invoice-step-pills"><span>1. معلومات عمومی</span><span>2. اقلام بل</span><span>3. جمع و پرداخت</span></div>
@@ -4515,19 +4517,20 @@ function InvoiceForm({
           <select value={currency} onChange={e=>switchCurrency(e.target.value)}>
             {CURRENCIES.map(code=><option key={code} value={code}>{CURRENCY_LABELS[code]}</option>)}
           </select>
-          <small>{currency==='AFN'?'قیمت‌ها به افغانی ثبت می‌شوند.':currentRate?`نرخ همین بل: ۱ ${currency} = ${number(currentRate)} افغانی`:'نرخ ارز را در همین بل درج کنید.'}</small>
+          <small>{currency==='AFN'?'قیمت‌ها به افغانی ثبت می‌شوند.':currentRate?`نرخ همین بل: ${quoteLabel(currency)} = ${number(currentRate*quoteUnits(currency))} افغانی`:'نرخ تبادله پول را در همین بل درج کنید.'}</small>
         </label>
+        {currency==='AFN' && pendingFx && <button type="button" className="btn secondary" onClick={applyPendingFx}>تایید تبدیل به افغانی</button>}
         {currency!=='AFN' && <div className="invoice-fx-box" role="group" aria-label={`نرخ تبدیل ${currency}`}>
           <strong><CircleDollarSign size={17}/> نرخ تبدیل {currency} به افغانی</strong>
           <p>نرخ همین بل را وارد کنید. این نرخ فقط برای همین بل است.</p>
           <div className="invoice-fx-fields">
-            <label>۱ {currency} = چند افغانی؟
+            <label>{quoteLabel(currency)} = چند افغانی؟
               <GroupedNumberInput dir="ltr"  min="0" step="any" inputMode="decimal" required placeholder={`نرخ ${currency} به افغانی`} value={form[rateFieldFor(currency)]??''} onChange={e=>changeSelectedRate(e.target.value)}/>
             </label>
           </div>
-          {pendingFx && <small className="invoice-muted-hint" role="status">نرخ را درج کنید تا قیمت‌ها و مصارف قبلی به {currency} تبدیل شوند.</small>}
+          {pendingFx && <div className="invoice-muted-hint" role="status">نرخ کامل را درج کنید، سپس تبدیل را تایید کنید. <button type="button" className="btn primary" disabled={!currentRate} onClick={applyPendingFx}>تایید تبدیل به {currency}</button></div>}
         </div>}
-        <label>
+        <fieldset disabled={!!pendingFx} className="fx-draft-fields"><label>
           گدام
           <select value={form.warehouseId || DEFAULT_WAREHOUSE} onChange={e => {
             const warehouseId=e.target.value;
@@ -4537,7 +4540,7 @@ function InvoiceForm({
               const product=findProduct(line,data.products||[]);
               if(!product)return line;
               const priceAfn=fifoStock(data).suggestedPrice(product.id,warehouseId,Number(line.quantity||1),product.price);
-              return {...line,price:String(roundMoney(priceAfn/currentRate)),catalogPriceAfn:priceAfn};
+              return {...line,price:String(Number((priceAfn/currentRate).toFixed(6))),catalogPriceAfn:priceAfn};
             }));
           }}>
             <option value={DEFAULT_WAREHOUSE}>گدام عمومی</option>
@@ -4603,8 +4606,9 @@ function InvoiceForm({
           </select>
           <small>برای پرداخت قسمی، مبلغ پرداخت‌شده را مستقیماً در بالا درج کنید.</small>
         </label>}
-        {isEditing&&<small className="invoice-muted-hint">مبلغ پرداخت‌شده در بل ثبت‌شده برای حفظ حسابات و صندوق قفل است. دریافت‌های تازه را از بخش پرداخت ثبت کنید.</small>}
+        {isEditing&&<small className="invoice-muted-hint">مبلغ پرداخت‌شده در بل ثبت‌شده برای حفظ حسابات و صندوق قفل است. دریافت‌های تازه را از بخش پرداخت ثبت کنید.</small>}</fieldset>
       </div>
+      <fieldset disabled={!!pendingFx} className="fx-draft-fields">
       {saleContract?.enabled&&<section className="contract-payment-summary"><strong><FileText size={17}/> شرایط قرارداد مشتری</strong><span>حداقل پیش‌پرداخت: {number(saleContract.percent)}٪ — {number(contractMinimum)} {currency}</span><span>مهلت باقی‌داری: {number(saleContract.days)} روز — {formatCalendarDate(due,calendarMode)}</span><button type="button" className="btn secondary" onClick={()=>setForm(prev=>({...prev,paid:String(contractMinimum)}))}>درج مبلغ حداقل پیش‌پرداخت</button>{underpaid&&<small className="form-error">مبلغ پرداخت‌شده کمتر از پیش‌پرداخت قرارداد است.</small>}</section>}
       <div className="invoice-lines invoice-lines-modern">
         <div className="lines-title">
@@ -4745,7 +4749,7 @@ function InvoiceForm({
       {type==='purchase'&&items.some(i=>Number(i.quantity)>0)&&<section className="purchase-cost-preview">
         <h4>محاسبه قیمت تمام‌شده خرید</h4>
         <p>مجموع مصارف اضافی روی اجناس تقسیم می‌شود. برای یک قلم: (مبلغ کل قلم − تخفیف + مصارف اضافی) ÷ تعداد.</p>
-        {(()=>{try {const rows=purchaseLineCosts(items,expensesTotal);return items.map((item,i)=><div className="purchase-cost-row" key={i}>
+        {(()=>{try {const rows=purchaseLineCosts(items.map(({lineTotalAfn,...item})=>item),expensesTotal);return items.map((item,i)=><div className="purchase-cost-row" key={i}>
           <span>{item.product||`قلم ${i+1}`} — سهم مصارف: {number(rows[i].allocatedExpenses)} {currency}</span>
           <strong>قیمت تمام‌شده فی واحد: {number(roundMoney(rows[i].unitLandedCost))} {currency}</strong>
         </div>)}catch{return <small className="form-error">تعداد و مبلغ کل هر قلم را کامل کنید.</small>}})()}
@@ -4760,13 +4764,14 @@ function InvoiceForm({
       </label>
       <div className="invoice-total">
         <span>اجناس: {number(roundMoney(total))} {currency} + مصارف اضافی: {number(roundMoney(expensesTotal))} {currency}</span>
-        <strong>{currentRate?money(roundMoney((total+expensesTotal)*currentRate)):'نرخ تبدیل این بل تعیین نشده'}</strong>
+        <strong>{pendingFx?'نخست تبدیل را تایید کنید':currentRate?money(roundMoney((total+expensesTotal)*currentRate)):'نرخ تبدیل این بل تعیین نشده'}</strong>
       </div>
+      </fieldset>
       <div className="modal-actions">
         <button type="button" className="btn secondary" onClick={onCancel}>
           لغو
         </button>
-        <button className="btn primary">
+        <button className="btn primary" disabled={!!pendingFx || !currentRate}>
           <Save size={15} /> ثبت بل
         </button>
       </div>
@@ -4798,7 +4803,7 @@ function JournalForm({ form, setForm, items, setItems, onSubmit, onCancel }) {
       </div>
       <div className="invoice-lines">
         <div className="lines-title">
-          <strong>تراکنش‌ها</strong>
+          <strong>معاملات</strong>
           <button
             type="button"
             className="add-line"
@@ -4809,59 +4814,59 @@ function JournalForm({ form, setForm, items, setItems, onSubmit, onCancel }) {
               ])
             }
           >
-            <Plus size={14} /> افزودن تراکنش
+            <Plus size={14} /> افزودن معامله
           </button>
         </div>
         <div className="table-wrap responsive-entry-lines">
           <table>
             <thead>
               <tr>
-                <th>عنوان سرفصل</th>
+                <th>عنوان حساب</th>
                 <th>توضیحات</th>
-                <th>بدهکار</th>
-                <th>بستانکار</th>
+                <th>دبیت</th>
+                <th>کریدیت</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {items.map((item, i) => (
                 <tr key={i}>
-                  <td data-label="عنوان سرفصل">
+                  <td data-label="عنوان حساب">
                     <input
-                      aria-label={`عنوان سرفصل، تراکنش ${i + 1}`}
+                      aria-label={`عنوان حساب، معامله ${i + 1}`}
                       value={item.account}
                       onChange={(e) => update(i, "account", e.target.value)}
-                      placeholder="نام سرفصل"
+                      placeholder="نام حساب"
                     />
                   </td>
                   <td data-label="توضیحات">
                     <input
-                      aria-label={`توضیحات، تراکنش ${i + 1}`}
+                      aria-label={`توضیحات، معامله ${i + 1}`}
                       value={item.description}
                       onChange={(e) => update(i, "description", e.target.value)}
                     />
                   </td>
-                  <td data-label="بدهکار">
+                  <td data-label="دبیت">
                     <GroupedNumberInput
-                      aria-label={`بدهکار، تراکنش ${i + 1}`}
+                      aria-label={`دبیت، معامله ${i + 1}`}
                       
                       min="0"
                       value={item.debit}
                       onChange={(e) => update(i, "debit", e.target.value)}
                     />
                   </td>
-                  <td data-label="بستانکار">
+                  <td data-label="کریدیت">
                     <GroupedNumberInput
-                      aria-label={`بستانکار، تراکنش ${i + 1}`}
+                      aria-label={`کریدیت، معامله ${i + 1}`}
                       
                       min="0"
                       value={item.credit}
                       onChange={(e) => update(i, "credit", e.target.value)}
                     />
                   </td>
-                  <td data-label="حذف تراکنش" className="entry-remove">
+                  <td data-label="حذف معامله" className="entry-remove">
                     <button
-                      aria-label={`حذف تراکنش ${i + 1}`}
+                      aria-label={`حذف معامله ${i + 1}`}
                       type="button"
                       className="icon-btn small danger"
                       onClick={() => setItems(items.filter((_, n) => n !== i))}
@@ -4877,10 +4882,10 @@ function JournalForm({ form, setForm, items, setItems, onSubmit, onCancel }) {
       </div>
       <div className="balance-row">
         <span>
-          مجموع بدهکار: <b>{money(debit)}</b>
+          مجموع دبیت: <b>{money(debit)}</b>
         </span>
         <span>
-          مجموع بستانکار: <b>{money(credit)}</b>
+          مجموع کریدیت: <b>{money(credit)}</b>
         </span>
       </div>
       <div className="modal-actions">
@@ -4911,12 +4916,12 @@ function downloadInvoiceCsv(rows) {
   downloadCsv(
     "بلها",
     [
-      ["number", "شماره بل"],
+      ["number", "نمبر بل"],
       ["date", "تاریخ"],
       ["party", "طرف حساب"],
       ["total", "مبلغ"],
       ["extraExpensesTotal", "مصارف اضافی"],
-      ["currency", "ارز بل"],
+      ["currency", "واحد پول بل"],
       ["exchangeRate", "نرخ تبدیل"],
       ["balance", "مانده"],
       ["status", "وضعیت"],
@@ -4928,7 +4933,7 @@ function downloadJournalCsv(rows) {
   downloadCsv(
     "اسناد حسابداری",
     [
-      ["number", "شماره سند"],
+      ["number", "نمبر سند"],
       ["date", "تاریخ"],
       ["name", "نام سند"],
       ["debit", "دبیت"],

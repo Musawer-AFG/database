@@ -4,14 +4,14 @@ import { normalizeScheduleFields } from './workHours.js';
 // Local-only role-based access for the React client-preview. NOT an authentication/security boundary.
 export const PERMISSION_GROUPS = [
   { name:'داشبورد', permissions:[['dashboard.view','دیدن داشبورد']] },
-  { name:'بل‌های فروش', permissions:[['sales.view','دیدن بل‌های فروش'],['sales.manage','ایجاد بل فروش'],['sales.edit','ویرایش بل فروش'],['sales.delete','حذف بل فروش'],['sales.collect','ثبت دریافت پول از مشتری']] },
-  { name:'بل‌های خرید و برگشتی', permissions:[['purchases.view','دیدن بل‌های خرید'],['purchases.manage','ایجاد بل خرید'],['purchases.edit','ویرایش بل خرید'],['purchases.delete','حذف بل خرید'],['returns.view','دیدن بل‌های برگشتی'],['returns.manage','ایجاد بل برگشتی'],['returns.edit','ویرایش بل برگشتی'],['returns.delete','حذف بل برگشتی']] },
-  { name:'گدام', permissions:[['inventory.view','دیدن موجودی و گدام'],['inventory.manage','ثبت جنس و حرکت گدام'],['inventory.edit','ویرایش جنس و گدام'],['inventory.delete','حذف جنس، گدام و محموله']] },
-  { name:'مشتریان و عرضه‌کنندگان', permissions:[['customers.view','دیدن مشتریان و قرضداری'],['customers.manage','افزودن مشتری و عرضه‌کننده'],['customers.edit','ویرایش مشتری، عرضه‌کننده و قرارداد'],['customers.delete','حذف مشتری و عرضه‌کننده']] },
-  { name:'حسابداری', permissions:[['accounting.view','دیدن اسناد و مصارف'],['accounting.manage','ثبت اسناد و مصارف'],['accounting.edit','ویرایش ریکاردهای حسابداری'],['accounting.delete','حذف اسناد، مصارف و حرکت صندوق']] },
-  { name:'منابع بشری', permissions:[['employees.view','دیدن کارمندان و حاضری'],['employees.manage','افزودن کارمند و ثبت حاضری'],['employees.edit','ویرایش معلومات کارمند'],['employees.delete','حذف کارمند'],['payroll.view','دیدن معاشات'],['payroll.manage','ساخت برگه معاش'],['payroll.delete','حذف برگه معاش'],['payroll.pay','ثبت پرداخت معاش']] },
+  { name:'بل‌های فروش', permissions:[['sales.view','دیدن بل‌های فروش'],['sales.manage','ایجاد بل فروش'],['sales.edit','اصلاح بل فروش'],['sales.delete','حذف بل فروش'],['sales.collect','ثبت دریافت پول از مشتری']] },
+  { name:'بل‌های خرید و برگشتی', permissions:[['purchases.view','دیدن بل‌های خرید'],['purchases.manage','ایجاد بل خرید'],['purchases.edit','اصلاح بل خرید'],['purchases.delete','حذف بل خرید'],['returns.view','دیدن بل‌های برگشتی'],['returns.manage','ایجاد بل برگشتی'],['returns.edit','اصلاح بل برگشتی'],['returns.delete','حذف بل برگشتی']] },
+  { name:'گدام', permissions:[['inventory.view','دیدن موجودی و گدام'],['inventory.manage','ثبت جنس و حرکت گدام'],['inventory.edit','اصلاح جنس و گدام'],['inventory.delete','حذف جنس، گدام و محموله']] },
+  { name:'مشتریان و عرضه‌کنندگان', permissions:[['customers.view','دیدن مشتریان و قرضداری'],['customers.manage','افزودن مشتری و عرضه‌کننده'],['customers.edit','اصلاح مشتری، عرضه‌کننده و قرارداد'],['customers.delete','حذف مشتری و عرضه‌کننده']] },
+  { name:'حسابداری', permissions:[['accounting.view','دیدن اسناد و مصارف'],['accounting.manage','ثبت اسناد و مصارف'],['accounting.edit','اصلاح ریکاردهای حسابداری'],['accounting.delete','حذف اسناد، مصارف و حرکت صندوق']] },
+  { name:'منابع بشری', permissions:[['employees.view','دیدن کارمندان و حاضری'],['employees.manage','افزودن کارمند و ثبت حاضری'],['employees.edit','اصلاح معلومات کارمند'],['employees.delete','حذف کارمند'],['payroll.view','دیدن معاشات'],['payroll.manage','ساخت فورم معاش'],['payroll.delete','حذف فورم معاش'],['payroll.pay','ثبت پرداخت معاش']] },
   { name:'گزارش‌ها', permissions:[['reports.view','دیدن و دریافت گزارش‌ها']] },
-  { name:'تنظیمات و مدیریت', permissions:[['settings.view','دیدن تنظیمات'],['settings.manage','ویرایش تنظیمات فروشگاه و سال مالی'],['profile.edit','ویرایش پروفایل شخصی'],['roles.manage','مدیریت نقش‌ها و کاربران']] },
+  { name:'تنظیمات و مدیریت', permissions:[['settings.view','دیدن تنظیمات'],['settings.manage','اصلاح تنظیمات دکان و سال مالی'],['profile.edit','اصلاح پروفایل شخصی'],['roles.manage','مدیریت نقش‌ها و کاربران']] },
 ];
 export const ALL_PERMISSION_KEYS = PERMISSION_GROUPS.flatMap(g=>g.permissions.map(([key])=>key));
 
@@ -19,7 +19,7 @@ export const PAGE_PERMISSION = {
   dashboard:'dashboard.view',sales:'sales.view',purchases:'purchases.view',returns:'returns.view',
   warehouseDashboard:'inventory.view',products:'inventory.view',groups:'inventory.view',warehouses:'inventory.view',
   customersDashboard:'customers.view',customers:'customers.view',debtors:'customers.view',suppliers:'customers.view',
-  financialOverview:'accounting.view',journal:'accounting.view',accounts:'accounting.view',expenses:'accounting.view',cashRegister:'accounting.view',traderAccounts:'accounting.view',shipments:'purchases.view',
+  financialOverview:'accounting.view',journal:'accounting.view',accounts:'accounting.view',expenses:'accounting.view',cashRegister:'accounting.view',traderAccounts:'accounting.view',sarrafs:'accounting.view',shipments:'purchases.view',
   employees:'employees.view',attendance:'employees.view',payroll:'payroll.view',
   reports:'reports.view',trialBalance:'reports.view',journalReport:'reports.view',ledgerReport:'reports.view',documentReport:'reports.view',profitAnalysis:'reports.view',
   settings:'settings.view',roles:'roles.manage',profile:null,help:null,
@@ -63,7 +63,7 @@ export const DEFAULT_ROLES = [
     'dashboard.view','sales.view','sales.manage','sales.collect','returns.view','returns.manage',
     'customers.view','customers.manage','inventory.view','profile.edit',
   ]},
-  {id:'keeper',name:'مسئول گدام',permissions:[
+  {id:'keeper',name:'مسوول گدام',permissions:[
     'dashboard.view','inventory.view','inventory.manage','purchases.view','purchases.manage','profile.edit',
   ]},
   {id:'viewer',name:'فقط مشاهده',permissions:[
@@ -157,8 +157,8 @@ export function saveUserRecord(access,record) {
   const id=record.id || `user-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
   const existing=access.users.find(u=>u.id===id);
   const username=normalizeUsername(record.username || existing?.username);
-  if(username && !validUsername(username)) throw Error('نام کاربری باید ۳ تا ۳۲ حرف انگلیسی، عدد، نقطه، - یا _ باشد.');
-  if(username && access.users.some(u=>u.id!==id && normalizeUsername(u.username)===username)) throw Error('نام کاربری تکراری است.');
+  if(username && !validUsername(username)) throw Error('نام کاربر باید ۳ تا ۳۲ حرف انگلیسی، عدد، نقطه، - یا _ باشد.');
+  if(username && access.users.some(u=>u.id!==id && normalizeUsername(u.username)===username)) throw Error('نام کاربر تکراری است.');
   const employeeId=String(record.employeeId ?? existing?.employeeId ?? '');
   if(employeeId && access.users.some(u=>u.id!==id && String(u.employeeId||'')===employeeId)) throw Error('برای این کارمند قبلاً حساب ساخته شده است.');
   const credential=record.passwordHash ? safeCredential(record) : safeCredential(existing);
@@ -175,8 +175,8 @@ export function setAccountPassword(access,id,credential,{mustChangePassword=fals
   const valid=safeCredential(credential);
   if(!valid.passwordHash) throw Error('رمز معتبر نیست.');
   const candidate=normalizeUsername(username ?? user.username);
-  if(!validUsername(candidate)) throw Error('نام کاربری باید حداقل ۳ حرف لاتین داشته باشد.');
-  if(access.users.some(u=>u.id!==id&&normalizeUsername(u.username)===candidate)) throw Error('این نام کاربری قبلاً ثبت شده است.');
+  if(!validUsername(candidate)) throw Error('نام کاربر باید حداقل ۳ حرف لاتین داشته باشد.');
+  if(access.users.some(u=>u.id!==id&&normalizeUsername(u.username)===candidate)) throw Error('این نام کاربر قبلاً ثبت شده است.');
   return {...access,users:access.users.map(u=>u.id===id?{...u,...valid,...clearRecoveryFields(),username:candidate,mustChangePassword}:u)};
 }
 export function removeUserRecord(access,id) {
@@ -186,6 +186,6 @@ export function removeUserRecord(access,id) {
 
 export function setRecoveryRecord(access,id,record) {
   const fields=recoveryFields(record);
-  if(!fields.recoveryHash || !access.users.some(u=>u.id===id)) throw Error('کد بازیابی معتبر نیست.');
+  if(!fields.recoveryHash || !access.users.some(u=>u.id===id)) throw Error('کود بازگردانی معتبر نیست.');
   return {...access,users:access.users.map(u=>u.id===id?{...u,...fields}:u)};
 }

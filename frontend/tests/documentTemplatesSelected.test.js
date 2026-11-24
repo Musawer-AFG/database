@@ -51,7 +51,7 @@ test('contract document layout 4 uses editable terms and header, but not sale pr
 });
 
 test('customer edited terms take precedence over global template; snapshots retain their terms',()=>{
- const p={shopName:'فروشگاه',contractDesign:{content:{payment:'متن پیش‌فرض جدید'}}};
+ const p={shopName:'دکان',contractDesign:{content:{payment:'متن از قبل تعیین‌شده جدید'}}};
  const customer={name:'مشتری',saleContract:{enabled:true,payment:'تعهد ویژه مشتری',percent:25,days:28}};
  const snap=contractSnapshot(customer,p,bill);
  assert.equal(snap.payment,'تعهد ویژه مشتری');
@@ -65,5 +65,5 @@ test('settings permission confirmation notices changed document content, and UI 
  assert.deepEqual(describeSettingsChanges(old,{billDesign:{...old.billDesign,content:{...old.billDesign.content,footer:'تشکر'}}}),['تغییر طرح چاپ بل‌های فروش و خرید']);
  assert.deepEqual(describeSettingsChanges(old,{contractDesign:{...old.contractDesign,content:{...old.contractDesign.content,final:'شرایط جدید'}}}),['تغییر طرح چاپ قرارداد مشتریان']);
  const source=fs.readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
- for(const token of ['طرح ۱ — Minimal Navy','طرح ۴ — Clean Blue Contract','ویرایش متن و عنوان‌های بل','ویرایش متن پیش‌فرض قرارداد','کد رنگ (HEX)','بارگذاری لوگوی بل‌های فروش و خرید','بارگذاری لوگوی قرارداد'])assert.ok(source.includes(token),token);
+ for(const token of ['طرح ۱ — Minimal Navy','طرح ۴ — Clean Blue Contract','اصلاح متن و عنوان‌های بل','اصلاح متن از قبل تعیین‌شده قرارداد','کود رنگ (HEX)','آپلود لوگوی بل‌های فروش و خرید','آپلود لوگوی قرارداد'])assert.ok(source.includes(token),token);
 });

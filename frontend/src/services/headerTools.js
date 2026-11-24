@@ -18,7 +18,7 @@ export function quickSearch(data, text, access, userId, limit=14) {
     if(!fields.some(v=>clean(v).includes(query))) return;
     result.push({page,label,caption,match:String(match || label)});
   };
-  for(const p of data?.products || []) add('products',p.name || 'محصول',`محصول • ${p.code || 'بدون کد'}`,p.name,[p.name,p.code,p.group,p.unit,p.sstid]);
+  for(const p of data?.products || []) add('products',p.name || 'محصول',`محصول • ${p.code || 'بدون کود'}`,p.name,[p.name,p.code,p.group,p.unit,p.sstid]);
   for(const c of data?.customers || []) add('customers',c.name || 'مشتری',`مشتری • ${c.phone || ''}`,c.name,[c.name,c.phone,c.mobile,c.economicNumber,c.province]);
   for(const s of data?.suppliers || []) add('suppliers',s.name || 'عرضه‌کننده',`عرضه‌کننده • ${s.phone || ''}`,s.name,[s.name,s.phone,s.mobile,s.province]);
   for(const e of data?.employees || []) {
@@ -30,6 +30,8 @@ export function quickSearch(data, text, access, userId, limit=14) {
     add(page,invoice.title || invoice.party || 'بل',`بل • ${invoice.party||''} • ${invoice.date||''}`,invoice.title||invoice.party,[invoice.id,invoice.title,invoice.party,invoice.date,invoice.notes]);
   }
   for(const warehouse of data?.warehouses || []) add('warehouses',warehouse.name||'گدام',`گدام • ${warehouse.location||''}`,warehouse.name,[warehouse.name,warehouse.location,warehouse.manager]);
+  for(const s of data?.sarrafs||[])add('sarrafs',s.name,`صراف • ${s.phone||''}`,s.name,[s.name,s.shopName,s.market,s.shopNumber,s.country,s.city,s.phone,s.mobile,s.location,s.contactPerson]);
+  for(const t of data?.sarrafTransactions||[])add('sarrafs',t.sarrafName,`حواله • ${t.reference}`,t.sarrafName,[t.reference,t.party,t.notes]);
   return result.slice(0,Math.max(1,limit));
 }
 export function transactionsForDay(data,date) {
@@ -42,5 +44,6 @@ export function transactionsForDay(data,date) {
     rows.push({page:'expenses',label:x.name||x.title||x.description||'مصرف',kind:'مصرف / درآمد',amount:Number(x.amount||0)});
   for(const x of data?.journals || []) if(afghanDateOrder(x.date)===chosen)
     rows.push({page:'journal',label:x.name||x.title||'سند حسابداری',kind:'سند',amount:0});
+  for(const t of data?.sarrafTransactions||[]) if(afghanDateOrder(t.date)===chosen)rows.push({page:"sarrafs",label:`صراف: ${t.sarrafName} — ${t.reference}`,kind:"حواله / معامله صراف",amount:t.afn});
   return rows;
 }

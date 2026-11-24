@@ -45,3 +45,9 @@
 .trade-profit-steps .trade-profit-final span,.trade-profit-steps .trade-profit-final strong{color:var(--custom-accent-text,var(--custom-accent,#2351b8));font-weight:800}
 .trade-profit-simple>small{display:block;margin-top:12px;font-size:12px;line-height:1.7;color:var(--muted,#666)}
 @media(max-width:550px){.trade-profit-steps>div{align-items:flex-start;flex-direction:column;gap:3px}.trade-profit-steps strong{white-space:normal}}
+.trade-subheading{flex-wrap:wrap}
+.trade-subheading .heading-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.sarraf-profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px}
+.sarraf-profile-grid>div{border:1px solid var(--line,#e2e8f0);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:5px;min-width:0}
+.sarraf-profile-grid span{font-size:12px;color:var(--muted,#777)}
+.sarraf-profile-grid strong{font-size:14px;overflow-wrap:anywhere}

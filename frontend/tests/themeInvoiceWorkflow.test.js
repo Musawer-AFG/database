@@ -21,7 +21,7 @@ test('customer and supplier shortcut opens complete entity form and keeps unfini
 
 test('exchange rate only renders when USD or PKR selected and preserves pending draft',()=>{
   assert.match(invoice,/currency!==\s*'AFN'\s*&&\s*<div className="invoice-fx-box"/);
-  assert.match(invoice,/۱ \{currency\} = چند افغانی/);
+  assert.match(invoice,/\{quoteLabel\(currency\)\} = چند افغانی/);
   assert.match(invoice,/setPendingFx\(\{sourceCurrency:currency/);
   assert.match(invoice,/pendingFx\.sourceRate\/rate/);
   assert.ok(!invoice.includes('۱ USD = چند AFN؟'));

@@ -22,9 +22,9 @@ test('USD purchase includes truck freight and customs at per-bill rate',()=>{
 });
 
 test('PKR bill uses its own conversion rate, not global settings',()=>{
-  const purchase=convertInvoiceToAfn([line(100,200)],0,'PKR',{PKR:.25},[{id:'truck',type:'transport',amount:1000}]);
+  const purchase=convertInvoiceToAfn([line(100,200)],0,'PKR',{PKR:250},[{id:'truck',type:'transport',amount:1000}]);
   assert.equal(purchase.total,5250);
-  const second=convertInvoiceToAfn([line(100,200)],0,'PKR',{PKR:.24},[{id:'truck',type:'transport',amount:1000}]);
+  const second=convertInvoiceToAfn([line(100,200)],0,'PKR',{PKR:240},[{id:'truck',type:'transport',amount:1000}]);
   assert.equal(second.total,5040);
 });
 

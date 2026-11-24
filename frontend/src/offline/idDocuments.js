@@ -5,7 +5,7 @@ const STORE='files';
 const MAX_BYTES=8*1024*1024;
 const allowed=['image/jpeg','image/png','image/webp','application/pdf'];
 function database(){
-  if(typeof indexedDB==='undefined') return Promise.reject(Error('حفظ اسناد در این مرورگر فعال نیست.'));
+  if(typeof indexedDB==='undefined') return Promise.reject(Error('حفظ اسناد در این براوزر فعال نیست.'));
   return new Promise((resolve,reject)=>{
     const req=indexedDB.open(DB,1);
     req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains(STORE))req.result.createObjectStore(STORE,{keyPath:'id'});};

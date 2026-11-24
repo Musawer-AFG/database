@@ -42,15 +42,15 @@ function TrendLines({rows,kind,onMonth}) {
   if(all.every(v=>v===0))return <div className="qr-empty">برای سال انتخاب‌شده هنوز معلوماتی موجود نیست.</div>;
   return <>
     <div className="qr-trend-legend">{topLines.map(l=><span key={l.key}><i style={{background:l.color}}/>{l.label}</span>)}</div>
-    <div className="qr-chart-scroll" role="region" aria-label="نمودار تغییرات ماهانه" tabIndex={0}>
-      <svg className="qr-line-svg" viewBox="0 0 620 204" preserveAspectRatio="none" role="img" aria-label={`نمودار ${values.map(v=>v[1]).join(' و ')}`}>
+    <div className="qr-chart-scroll" role="region" aria-label="چارت تغییرات ماهانه" tabIndex={0}>
+      <svg className="qr-line-svg" viewBox="0 0 620 204" preserveAspectRatio="none" role="img" aria-label={`چارت ${values.map(v=>v[1]).join(' و ')}`}>
         {[28,66,104,142,180].map(y=><line x1="26" x2="606" y1={y} y2={y} key={y} stroke="currentColor" strokeOpacity=".1" strokeDasharray="4 6"/>)}
         {ymin<0 && <line x1="26" x2="606" y1={py(0)} y2={py(0)} stroke="#a5acb8" strokeWidth="1"/>}
         {topLines.map(l=><g key={l.key}><polyline fill="none" stroke={l.color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" points={l.points}/>{coordinates.map((c,i)=><circle key={i} cx={c.x} cy={py(c[l.key])} r="3.5" fill={l.color}><title>{`${c.name}: ${afn(c[l.key])}`}</title></circle>)}</g>)}
       </svg>
       <div className="qr-month-labels">{rows.map(row=><button type="button" key={row.month} onClick={()=>onMonth(row.month)} title={`نمایش جزئیات ${row.name}`}>{row.name}</button>)}</div>
     </div>
-    <p className="qr-chart-caption">برای دیدن معلومات یک ماه، نام همان ماه را انتخاب کنید. در موبایل نمودار قابل حرکت است.</p>
+    <p className="qr-chart-caption">برای دیدن معلومات یک ماه، نام همان ماه را انتخاب کنید. در موبایل چارت قابل حرکت است.</p>
   </>;
 }
 
@@ -145,7 +145,7 @@ export function FinancialReportsOverview({data,openingCash=0,fiscalYear,onNaviga
     {profit.missingCostLines>0&&<div className="qr-warning" role="status"><AlertTriangle size={17}/><span>برای {number(profit.missingCostLines)} قلم فروش بهای خرید کامل موجود نیست؛ مفاد ممکن است نادرست باشد. نخست معلومات گدام و خرید را بررسی کنید.</span></div>}
     <div className="qr-tabs" role="tablist" aria-label="دسته‌های گزارش">{REPORT_TABS.map(item=><button key={item.id} type="button" role="tab" aria-selected={tab===item.id} className={tab===item.id?'active':''} onClick={()=>setTab(item.id)}>{item.label}</button>)}</div>
     <div className="qr-report-grid">
-      <section className="qr-card qr-trend-card"><header><div><h3>{tab==='profit'?'روند مفاد و فروشات':tab==='sales'?'روند فروشات و مصارف':tab==='cash'?'نمودار ورود و خروج پول':tab==='expenses'?'روند فروش و مصارف':'نمودار جریان تجارت'}</h3><p>مقایسه به تفکیک ماه‌های سال {number(year)}</p></div><BarChart3 size={19}/></header>
+      <section className="qr-card qr-trend-card"><header><div><h3>{tab==='profit'?'روند مفاد و فروشات':tab==='sales'?'روند فروشات و مصارف':tab==='cash'?'چارت ورود و خروج پول':tab==='expenses'?'روند فروش و مصارف':'چارت جریان تجارت'}</h3><p>مقایسه به تفکیک ماه‌های سال {number(year)}</p></div><BarChart3 size={19}/></header>
         <TrendLines rows={monthly} kind={tab==='cash'?'cash':tab==='profit'?'profit':'sales'} onMonth={chooseMonth}/>
       </section>
       <section className="qr-card qr-side-card"><header><div><h3>{tab==='expenses'?'تقسیم‌بندی مصارف':tab==='debts'?'طلبات و قرض‌ها':tab==='cash'?'خلاصه صندوق':'مفاد چگونه محاسبه شد؟'}</h3><p>{effectiveRange.label}</p></div>{tab==='expenses'?<PieChart size={19}/>:<FileText size={19}/>}</header>

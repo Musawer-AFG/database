@@ -50,7 +50,7 @@ export function Modal({ title, onClose, children }) {
       <section className="modal">
         <div className="modal-header">
           <h2>{title}</h2>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="بستن پنجره">
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="بستن صفحه">
             <X size={18} />
           </button>
         </div>

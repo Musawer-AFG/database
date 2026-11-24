@@ -7,7 +7,7 @@ import {updateInvoiceLine,refreshCatalogPrices} from '../src/services/catalogPri
 import {contractSnapshot} from '../src/services/customerContracts.js';
 import {invoicePrintHtml,contractPrintHtml} from '../src/utils/invoicePrint.js';
 const shopLogo='data:image/png;base64,AAAA',billLogo='data:image/png;base64,BBBB',contractLogo='data:image/png;base64,CCCC';
-const prefs={shopName:'فروشگاه نمونه',shopLogo,billDesign:{color:'#165f4c',logo:billLogo,logoMode:'custom'},contractDesign:{color:'#574180',logo:contractLogo,logoMode:'custom'}};
+const prefs={shopName:'دکان نمونه',shopLogo,billDesign:{color:'#165f4c',logo:billLogo,logoMode:'custom'},contractDesign:{color:'#574180',logo:contractLogo,logoMode:'custom'}};
 const bill={type:'sale',number:1,date:'1405/08/28',items:[],total:100,paid:50,balance:50};
 const customer={name:'مشتری نمونه',saleContract:{enabled:true,percent:50,days:28,terms:'مهلت توافقی',guarantorScan:{id:'private-scan-test',name:'private-file-test.pdf',mime:'application/pdf'}}};
 test('designs resolve independently; shop fallback, no-logo mode and validation work',()=>{
@@ -48,7 +48,7 @@ test('sale catalog pricing autofills, switches products, converts currencies, re
 });
 test('new settings and customer editor are connected, journal lines keep generic editor',()=>{
  const src=fs.readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
- for(const token of ['<DocumentDesignSettings kind="bill"','<DocumentDesignSettings kind="contract"','onSave({[field]:normalizeDocumentDesign(draft)})','سکن تذکره تضمین‌کننده (داخلی)','ویرایش قرارداد','updateInvoiceLine(item,key,value,type,data.products,currentRate)']) assert.ok(src.includes(token),token);
+ for(const token of ['<DocumentDesignSettings kind="bill"','<DocumentDesignSettings kind="contract"','onSave({[field]:normalizeDocumentDesign(draft)})','سکن تذکره تضمین‌کننده (داخلی)','اصلاح قرارداد','updateInvoiceLine(item,key,value,type,data.products,currentRate)']) assert.ok(src.includes(token),token);
  assert.ok(!src.slice(src.indexOf('function JournalForm(')).includes('updateInvoiceLine('));
  assert.ok(!src.includes('customer-contract-logo'));
 });
@@ -56,13 +56,13 @@ test('new settings and customer editor are connected, journal lines keep generic
 test('both print settings always render their upload control and automatically select the uploaded logo',()=>{
  const src=fs.readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
  const section=src.slice(src.indexOf('function DocumentDesignSettings('),src.indexOf('function ProfilePage('));
- assert.ok(section.includes('بارگذاری لوگوی بل‌های فروش و خرید'));
- assert.ok(section.includes('بارگذاری لوگوی قرارداد'));
+ assert.ok(section.includes('آپلود لوگوی بل‌های فروش و خرید'));
+ assert.ok(section.includes('آپلود لوگوی قرارداد'));
  assert.ok(section.includes('<BusinessLogoPicker inputId={`print-logo-${kind}`}'));
  assert.ok(!section.includes("draft.logoMode==='custom'&&<BusinessLogoPicker"));
  assert.ok(section.includes('onChange={setPrintLogo}'));
  assert.ok(section.includes("logoMode:logo?'custom':preferences.shopLogo?'shop':'none'"));
- assert.ok(section.includes('پیش‌نمایش سربرگ چاپ'));
+ assert.ok(section.includes('نمایش آزمایشی سربرگ چاپ'));
 });
 test('sales and purchase print headers use the chosen bill logo; all contract prints use the chosen contract logo',()=>{
  for(const type of ['sale','purchase']){

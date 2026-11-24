@@ -1,0 +1,53 @@
+import React,{useState,useContext} from 'react';
+import {PageHeading,Panel,StatCard} from '../../components/ui/Primitives.jsx';
+import {Wallet,Users,ArrowLeftRight,Plus,Save,Printer,Pencil} from 'lucide-react';
+import GroupedNumberInput from '../../components/forms/GroupedNumberInput.jsx';
+import {CURRENCIES,CURRENCY_LABELS,quoteLabel,toAfn} from '../../utils/currency.js';
+import {createSarraf,updateSarrafProfile,recordSarrafTransaction,sarrafStatement,SARRAF_KINDS,SARRAF_PROFILE_FIELDS} from '../../services/sarrafAccounts.js';
+import {afghanCalendarParts} from '../../services/business.js';
+import {formatCalendarDate} from '../../utils/afghanCalendar.js';
+import {CalendarModeContext} from '../../context/calendarMode.js';
+import {accountStatementHtml} from '../../utils/accountStatementPrint.js';
+import {printHtml} from '../../utils/invoicePrint.js';
+const money=x=>`${Number(x||0).toLocaleString('fa-AF',{maximumFractionDigits:2})} افغانی`;
+const num=x=>Number(x||0).toLocaleString('fa-AF',{maximumFractionDigits:2});
+const today=()=>{const p=afghanCalendarParts();return `${p.year}/${String(p.month).padStart(2,'0')}/${String(p.day).padStart(2,'0')}`};
+const empty=()=>({kind:'deposit',date:today(),currency:'AFN',amount:'',rate:'',invoiceId:'',reference:'',notes:''});
+const blank=()=>Object.fromEntries(SARRAF_PROFILE_FIELDS.map(([key])=>[key,'']));
+export function SarrafPage({data,setData,openingCash,canManage,notify,DatePicker,preferences={}}){
+ const [selected,setSelected]=useState('');const [adding,setAdding]=useState(false);const [editing,setEditing]=useState('');const [account,setAccount]=useState(blank);const [form,setForm]=useState(empty);const [error,setError]=useState('');const [showTx,setShowTx]=useState(false);
+ const mode=useContext(CalendarModeContext);
+ const sarrafs=data.sarrafs||[];const sarraf=sarrafs.find(s=>String(s.id)===selected);const statement=sarrafStatement(data,selected);
+ const total=sarrafs.reduce((s,a)=>s+sarrafStatement(data,a.id).balance,0);
+ const linked=['supplier','customer'].includes(form.kind);
+ const bills=(data.invoices||[]).filter(i=>linked&&i.type===(form.kind==='supplier'?'purchase':'sale')&&Number(i.balance)>0);
+ const edit=(key,value)=>setForm(f=>({...f,[key]:value}));
+ let preview=null;try{if(form.amount!=='')preview=toAfn(form.amount,form.currency,{[form.currency]:form.rate});}catch{}
+ function add(e){e.preventDefault();if(!canManage)return;try{const item=editing?updateSarrafProfile(data,editing,account):createSarraf(account,data);setData(p=>({...p,sarrafs:editing?(p.sarrafs||[]).map(s=>String(s.id)===editing?item:s):[...(p.sarrafs||[]),item]}));setSelected(String(item.id));setAccount(blank());setAdding(false);setEditing('');setError('');setForm(empty());notify(editing?'معلومات صراف اصلاح شد.':'صراف ثبت شد.');}catch(e){setError(e.message)}}
+ function printStatement(){if(!sarraf)return;printHtml(accountStatementHtml({title:'کهاته صراف',shopName:preferences.shopName,shopLogo:preferences.shopLogo,partyName:sarraf.name,partyType:'صراف',details:SARRAF_PROFILE_FIELDS.filter(([k])=>k!=='name').map(([k,label])=>[label,sarraf[k]]),date:today(),mode,debit:statement.debit,credit:statement.credit,balance:statement.balance,headers:['تاریخ','نوع معامله','نمبر حواله','طرف حساب / بل','مبلغ اصلی','نرخ به AFN','دبیت','کریدیت','مانده','ملاحظات'],rows:statement.rows.map(t=>[formatCalendarDate(t.date,mode),SARRAF_KINDS[t.kind],t.reference,t.party?`${t.party} / ${t.invoiceNumber||'—'}`:'—',`${num(t.amount)} ${t.currency}`,`${quoteLabel(t.currency)} = ${num(t.rate)}`,money(t.debit),money(t.credit),money(t.balance),t.notes])}));}
+ function save(e){e.preventDefault();if(!canManage)return;try{const next=recordSarrafTransaction(data,{...form,sarrafId:selected},openingCash);setData(next);setForm(empty());setShowTx(false);setError('');notify('معامله صراف و حسابات مربوط ثبت شد.');}catch(e){setError(e.message)}}
+ return <div className="sarraf-page" dir="rtl">
+  <PageHeading title="صرافان" description="ثبت پول نزد صراف، حواله به عرضه‌کنندگان و دریافت پول مشتریان" actions={canManage&&<button type="button" className="btn primary" onClick={()=>{setAdding(v=>!v);setEditing('');setAccount(blank());setShowTx(false);setError('')}}><Plus size={16}/> ایجاد صراف</button>}/>
+  <div className="stats-grid"><StatCard label="پول نزد صرافان" value={money(total)} icon={Wallet} tone="green"/><StatCard label="تعداد صرافان" value={num(sarrafs.length)} icon={Users} tone="blue"/><StatCard label="تعداد معاملات" value={num((data.sarrafTransactions||[]).length)} icon={ArrowLeftRight} tone="violet"/></div>
+  {adding&&canManage&&<Panel title={editing?'اصلاح معلومات صراف':'ایجاد صراف'}><form className="form-grid sarraf-form" onSubmit={add}>{SARRAF_PROFILE_FIELDS.map(([k,label])=><label key={k} className={['notes','location'].includes(k)?'wide':undefined}>{label}{k==='notes'?<textarea rows={3} value={account[k]||''} onChange={e=>setAccount(p=>({...p,[k]:e.target.value}))}/>:<input value={account[k]||''} required={k==='name'} readOnly={k==='name'&&!!editing} type={['phone','mobile'].includes(k)?'tel':'text'} onChange={e=>setAccount(p=>({...p,[k]:e.target.value}))}/>}</label>)}<div className="action-cell heading-actions"><button type="submit" className="btn primary"><Save size={15}/> {editing?'ذخیره معلومات':'ثبت صراف'}</button><button type="button" className="btn secondary" onClick={()=>{setAdding(false);setEditing('');setAccount(blank());setError('')}}>لغو</button></div></form></Panel>}
+
+  <Panel title="فهرست صرافان"><div className="sarraf-accounts">{sarrafs.map(s=><button type="button" key={s.id} className={`sarraf-account ${selected===String(s.id)?'selected':''}`} onClick={()=>{setSelected(String(s.id));setShowTx(false);setAdding(false);setEditing('');setAccount(blank());setForm(empty());setError('')}}><strong>{s.name}</strong><span>{[s.shopName,s.market,s.shopNumber?`دکان ${s.shopNumber}`:'',s.city,s.phone,s.location].filter(Boolean).join(' · ')||'حساب صراف'}</span><b>{money(sarrafStatement(data,s.id).balance)}</b></button>)}{!sarrafs.length&&<p className="info-note">نخست صراف را ثبت کنید.</p>}</div></Panel>
+  {sarraf&&<>
+   <Panel title="معلومات صراف" action={canManage&&<button type="button" className="btn secondary" onClick={()=>{setAccount({...blank(),...sarraf});setEditing(String(sarraf.id));setAdding(true);setShowTx(false);setError('')}}><Pencil size={15}/> اصلاح معلومات</button>}><div className="sarraf-profile-grid">{SARRAF_PROFILE_FIELDS.map(([k,label])=><div key={k}><span>{label}</span><strong>{sarraf[k]||'—'}</strong></div>)}</div></Panel>
+   <Panel title={`کهاته صراف — ${sarraf.name}`} action={canManage&&<button type="button" className="btn primary" onClick={()=>{setShowTx(v=>!v);setError('')}}><Plus size={16}/> ثبت معامله</button>}><div className="report-summary"><div><span>مجموع پول اضافه‌شده</span><strong>{money(statement.debit)}</strong></div><div><span>مجموع پول کم‌شده</span><strong>{money(statement.credit)}</strong></div><div><span>مانده نزد صراف (معادل AFN)</span><strong>{money(statement.balance)}</strong></div></div><p className="chart-note">حساب به افغانی نگهداری می‌شود؛ مبلغ اصلی و نرخ هر معامله نیز محفوظ است. این مانده، موجودی جداگانه هر واحد پول نیست.</p></Panel>
+   {showTx&&canManage&&<Panel title="ثبت معامله صراف"><form onSubmit={save} className="sarraf-form"><div className="form-grid">
+    <label>نوع معامله<select value={form.kind} onChange={e=>setForm(f=>({...f,kind:e.target.value,invoiceId:''}))}>{Object.entries(SARRAF_KINDS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
+    <label>تاریخ<DatePicker required value={form.date} onChange={v=>edit('date',v)}/></label>
+    <label>نمبر رسید / حواله<input required value={form.reference} onChange={e=>edit('reference',e.target.value)}/></label>
+    <label>واحد پول<select value={form.currency} onChange={e=>setForm(f=>({...f,currency:e.target.value,rate:'',amount:''}))}>{CURRENCIES.map(c=><option key={c} value={c}>{CURRENCY_LABELS[c]}</option>)}</select></label>
+    <label>مبلغ ({form.currency})<GroupedNumberInput required min="0.01" step="any" value={form.amount} onChange={e=>edit('amount',e.target.value)}/></label>
+    {form.currency!=='AFN'&&<label>{quoteLabel(form.currency)} = چند افغانی؟<GroupedNumberInput required min="0.000001" step="any" value={form.rate} onChange={e=>edit('rate',e.target.value)}/></label>}
+    {linked&&<label className="wide">{form.kind==='supplier'?'بل خرید عرضه‌کننده':'بل فروش مشتری'}<select required value={form.invoiceId} onChange={e=>edit('invoiceId',e.target.value)}><option value="">انتخاب بل با مانده</option>{bills.map(i=><option key={i.id} value={i.id}>{i.party} — بل {i.number} — {money(i.balance)}</option>)}</select></label>}
+    <label className="wide">ملاحظات<input value={form.notes} onChange={e=>edit('notes',e.target.value)} placeholder="مثلاً حواله برای خرید جنس از پاکستان"/></label>
+   </div><div className="invoice-total"><span>معادل افغانی</span><strong>{preview===null?'نرخ و مبلغ را درج کنید':money(preview)}</strong></div><p className="info-note">{form.kind==='supplier'?'پرداخت از موجودی صراف کم می‌شود و مانده بل خرید اصلاح می‌گردد؛ صندوق دوباره کم نمی‌شود.':form.kind==='customer'?'مانده بل فروش کم شده و پول به حساب نزد صراف اضافه می‌شود.':form.kind==='deposit'?'پول از صندوق به حساب صراف انتقال می‌شود.':'پول از حساب صراف به صندوق انتقال می‌شود.'} فقط حواله اجراشده را ثبت کنید.</p><div className="heading-actions"><button className="btn primary" type="submit"><Save size={15}/> ثبت معامله</button><button className="btn secondary" type="button" onClick={()=>setShowTx(false)}>لغو</button></div></form></Panel>}
+   <Panel title="روزنامچه معاملات صراف" action={<button type="button" className="btn secondary" onClick={printStatement}><Printer size={15}/> چاپ</button>}><div className="table-wrap"><table><thead><tr>{['تاریخ','نوع معامله','نمبر حواله','طرف حساب / بل','مبلغ اصلی','نرخ به AFN','دبیت','کریدیت','مانده'].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{statement.rows.map(t=><tr key={t.id}><td>{formatCalendarDate(t.date,mode)}</td><td>{SARRAF_KINDS[t.kind]}</td><td>{t.reference}</td><td>{t.party?`${t.party} / ${t.invoiceNumber||'—'}`:'—'}</td><td>{num(t.amount)} {t.currency}</td><td>{quoteLabel(t.currency)} = {num(t.rate)}</td><td>{money(t.debit)}</td><td>{money(t.credit)}</td><td>{money(t.balance)}</td></tr>)}{!statement.rows.length&&<tr><td colSpan={9}>معامله ثبت نشده است.</td></tr>}</tbody></table></div></Panel>
+  </>}
+  {error&&<p role="alert" className="trade-error sarraf-error">{error}</p>}
+  <p className="info-note">این نسخه نمایشی برای ثبت حساب است؛ حواله واقعی اجرا نمی‌کند. برای پرداخت به عرضه‌کننده، نخست پول را نزد صراف ثبت کنید و سپس حواله مربوط به بل خرید را ثبت نمایید.</p>
+ </div>
+}

@@ -23,7 +23,7 @@ export function isDuringShift(start, end, nowTime) {
   return start<end ? nowTime>=start && nowTime<end : nowTime>=start || nowTime<end;
 }
 export function employeeAccess(user, at=new Date()) {
-  if (!user || user.active===false) return {allowed:false,reason:'حساب کاربری غیرفعال است.'};
+  if (!user || user.active===false) return {allowed:false,reason:'حساب کاربر غیرفعال است.'};
   if(user.system) return {allowed:true,reason:'مدیر سیستم بدون محدودیت شیفت'};
   const schedule=normalizeScheduleFields(user);
   const current=kabulLocalDateTime(at);

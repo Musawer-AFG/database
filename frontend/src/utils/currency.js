@@ -12,12 +12,19 @@ export function normalizeRates(source) {
   return Object.fromEntries(Object.keys(DEFAULT_RATES).map(code=>[code,validExchangeRate(value[code])?Number(value[code]):0]));
 }
 export const roundMoney = value => Math.round((Number(value)+Number.EPSILON)*100)/100;
+export const quoteUnits = currency => currency === "PKR" ? 1000 : 1;
+export const quoteLabel = currency => `${currency === "PKR" ? "۱۰۰۰" : "۱"} ${currency}`;
+// Existing invoices stored PKR quotes per rupee. Only the quote changes, never saved AFN amounts.
+export function upgradeInvoiceQuote(invoice) {
+  if(invoice.fxQuoteVersion === 2) return invoice;
+  return {...invoice, pkrRate: Number(invoice.pkrRate||(invoice.currency==='PKR'?invoice.exchangeRate:0)||0)*1000, fxQuoteVersion:2};
+}
 export function currencyRate(currency,rates) {
   if(currency==='AFN') return 1;
   if(!Object.hasOwn(DEFAULT_RATES,currency)) throw Error('واحد پول معتبر نیست.');
   const rate=normalizeRates(rates)[currency];
   if(!rate) throw Error(`نرخ ${currency} را در همین بل یا فورم وارد کنید.`);
-  return rate;
+  return rate / quoteUnits(currency);
 }
 export function toAfn(amount,currency='AFN',rates={}) {
   const numeric=Number(amount);

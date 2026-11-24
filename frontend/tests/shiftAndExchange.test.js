@@ -28,17 +28,17 @@ test('saved employee accounts preserve shift and expiry through normalization',(
   assert.equal(reloaded.users[1].extraUntil,'2026-11-16T23:59');
 });
 test('FX manual rates and AFN base storage',()=>{
-  const rates={USD:70,PKR:0.25};
+  const rates={USD:70,PKR:250};
   assert.equal(toAfn(10,'USD',rates),700);
   assert.equal(toAfn(400,'PKR',rates),100);
   assert.equal(fromAfn(700,'USD',rates),10);
   assert.equal(toAfn(300,'AFN',rates),300);
   assert.equal(currencyRate('AFN',rates),1);
   assert.throws(()=>toAfn(10,'USD',{}),/نرخ/);
-  assert.deepEqual(normalizeRates({USD:-1,PKR:'0.25'}),{USD:0,PKR:0.25,AED:0,EUR:0});
+  assert.deepEqual(normalizeRates({USD:-1,PKR:'250'}),{USD:0,PKR:250,AED:0,EUR:0});
 });
 test('invoice source currency is converted once into accounting AFN',()=>{
-  const result=convertInvoiceToAfn([{product:'Rice',quantity:2,price:10,discount:0}],5,'USD',{USD:70,PKR:0.25});
+  const result=convertInvoiceToAfn([{product:'Rice',quantity:2,price:10,discount:0}],5,'USD',{USD:70,PKR:250});
   assert.equal(result.total,1400);
   assert.equal(result.paid,350);
   assert.equal(result.balance,1050);

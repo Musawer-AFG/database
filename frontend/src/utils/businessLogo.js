@@ -33,7 +33,7 @@ export async function readBusinessLogo(file) {
     const canvas=document.createElement('canvas');
     canvas.width=256; canvas.height=256;
     const ctx=canvas.getContext('2d');
-    if(!ctx) throw new Error('مرورگر نتوانست عکس را آماده کند.');
+    if(!ctx) throw new Error('براوزر نتوانست عکس را آماده کند.');
     const scale=Math.min(256/img.naturalWidth,256/img.naturalHeight);
     const w=img.naturalWidth*scale, h=img.naturalHeight*scale;
     ctx.drawImage(img,(256-w)/2,(256-h)/2,w,h);

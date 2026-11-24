@@ -25,11 +25,16 @@ export function cashRegister(data={}, openingCash=0) {
     add(`shipment-${shipment.id}-${charge.id}`,shipment.date,`مصرف محموله ${shipment.reference}: ${charge.description}`,-Number(charge.afn||0),'مصارف محموله',shipment.id);
   // Payments between traders can be outside the shop cash register.
   for(const settlement of data.settlements||[]) if(settlement.viaCash && !settlement.invoiceId && ['receive','pay'].includes(settlement.kind))
-    add(`settlement-${settlement.id}`,settlement.date,`${settlement.kind==='receive'?'دریافت':'پرداخت'} علی‌الحساب: ${settlement.party}`,settlement.kind==='receive'?Number(settlement.afn||0):-Number(settlement.afn||0),'تسویه حساب',settlement.id);
+    add(`settlement-${settlement.id}`,settlement.date,`${settlement.kind==='receive'?'دریافت':'پرداخت'} علی‌الحساب: ${settlement.party}`,settlement.kind==='receive'?Number(settlement.afn||0):-Number(settlement.afn||0),'تصفیه حساب',settlement.id);
   for(const expense of data.expenses||[]) add(`expense-${expense.id}`,expense.date,`مصرف: ${expense.name||'مصرف'}`,-Number(expense.amount||0),'مصارف',expense.id);
   for(const salary of data.payroll||[]) if(salary.status==='paid') {
     const net=Math.max(0,Number(salary.net??(Number(salary.base||0)+Number(salary.bonus||0)-Number(salary.deduction||0))));
     add(`salary-${salary.id}`,salary.paidDate||salary.date,`معاش: ${salary.employeeName||'کارمند'}`,-net,'معاشات',salary.id);
+  }
+  // Only cash handed over or received affects the cash register. Invoice settlement
+  // through the sarraf is already recorded as a non-cash payment.
+  for(const t of data.sarrafTransactions||[]) {
+    if(t.kind==='deposit'||t.kind==='withdraw')add(`sarraf-${t.id}`,t.date,`${t.kind==='deposit'?'سپردن پول به صراف':'گرفتن پول از صراف'} — ${t.sarrafName}`,t.kind==='deposit'?-Number(t.afn):Number(t.afn),'صرافان',t.id);
   }
   for(const item of data.cashEntries||[]) {
     add(`manual-${item.id}`,item.date,item.description||'حرکت دستی صندوق',item.kind==='in'?Number(item.amount||0):-Number(item.amount||0),item.kind==='in'?'افزودن پول مالک':'برداشت پول مالک',item.id);

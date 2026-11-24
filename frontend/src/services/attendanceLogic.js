@@ -68,7 +68,7 @@ export function resolvedAttendance(record,date,today=afghanKabulToday(),employee
   if((started&&order<started)||(ended&&order>ended)||employee.status==='غیرفعال')return {status:'',automatic:false};
   if(record?.status)return {...record,automatic:false};
   if(isAfghanFriday(date))return {status:'off',automatic:true,notes:'جمعه — رخصتی عمومی'};
-  if(order<=afghanDateOrder(today))return {status:'present',automatic:true,notes:'حاضر به صورت پیش‌فرض؛ نیازمند تأیید مسئول'};
+  if(order<=afghanDateOrder(today))return {status:'present',automatic:true,notes:'حاضر به شکل خودکار؛ نیازمند تأیید مسوول'};
   return {status:'',automatic:false};
 }
 export function attendanceOverview(rows=[],employees=[],year,month,today=afghanKabulToday()){

@@ -22,7 +22,7 @@ async function derivePassword(password, saltHex) {
 }
 export async function makeDemoCredential(password) {
   if(String(password).length < 8) throw Error('رمز باید حداقل ۸ حرف یا عدد داشته باشد.');
-  if(!globalThis.crypto?.subtle) throw Error('مرورگر برای رمزگذاری نمایشی نیاز به اتصال امن HTTPS دارد.');
+  if(!globalThis.crypto?.subtle) throw Error('براوزر برای رمزگذاری نمایشی نیاز به اتصال امن HTTPS دارد.');
   const salt=hex(crypto.getRandomValues(new Uint8Array(16)));
   return {passwordSalt:salt,passwordHash:await derivePassword(String(password),salt)};
 }

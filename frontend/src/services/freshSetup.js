@@ -11,7 +11,7 @@ export function validateFirstSetup({shopName,adminName,username,password,confirm
   if(!String(shopName||'').trim() || !String(adminName||'').trim())
     return {ok:false,message:'نام عمده‌فروشی و نام مدیر ضروری است.'};
   if(!/^[a-z0-9_.-]{3,32}$/i.test(String(username||'').trim()))
-    return {ok:false,message:'نام کاربری باید ۳ تا ۳۲ حرف انگلیسی، عدد یا علامت مجاز داشته باشد.'};
+    return {ok:false,message:'نام کاربر باید ۳ تا ۳۲ حرف انگلیسی، عدد یا علامت مجاز داشته باشد.'};
   if(String(password||'').length<8)
     return {ok:false,message:'رمز باید حداقل ۸ حرف داشته باشد.'};
   if(password!==confirmPassword)

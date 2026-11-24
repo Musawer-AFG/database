@@ -927,3 +927,20 @@ td { font-size: 13px; }
     width:100%;
   }
 }
+
+/* Sarraf demo: use existing panel and control tokens for light/dark themes. */
+.sarraf-page{display:flex;flex-direction:column;gap:16px;min-width:0}
+.sarraf-page .stats-grid,.sarraf-page .page-heading,.sarraf-page .section-heading{margin-bottom:0}
+.sarraf-accounts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:12px}
+.sarraf-account{display:flex;flex-direction:column;text-align:start;gap:8px;padding:16px;border:1px solid var(--border,#dce3e0);border-radius:12px;color:inherit;background:var(--surface,#fff);min-width:0;overflow-wrap:anywhere}
+.sarraf-account.selected{outline:2px solid var(--accent,#167650);outline-offset:-2px}
+.sarraf-account span{font-size:12px;color:var(--muted,#687872)}
+.sarraf-account b{font-size:17px}
+.sarraf-form .action-cell{align-self:end;display:flex;align-items:end}
+.sarraf-form .action-cell button{min-height:42px}
+.sarraf-error{padding:12px;border-radius:8px;position:sticky;bottom:8px;z-index:1}
+:root[data-theme="dark"] .sarraf-account{background:var(--surface,#242b32);border-color:var(--border,#3b4650);color:var(--text,#e4e9ed)}
+@media(max-width:760px){.sarraf-form .action-cell button{width:100%}.sarraf-page{gap:12px}.sarraf-page .panel-heading{flex-wrap:wrap}.sarraf-page .table-wrap{overflow-x:auto}}
+
+.fx-draft-fields{display:contents;border:0;padding:0;margin:0;min-width:0}
+.sarraf-account.selected{outline-color:var(--brand,#167650)}

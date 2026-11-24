@@ -1,5 +1,5 @@
 import {roundMoney,validExchangeRate} from '../utils/currency.js';
-export function catalogPriceForRate(base,rate){return base!==''&&base!=null&&Number.isFinite(Number(base))&&Number(base)>=0&&validExchangeRate(rate)?String(roundMoney(Number(base)/Number(rate))):'';}
+export function catalogPriceForRate(base,rate){return base!==''&&base!=null&&Number.isFinite(Number(base))&&Number(base)>=0&&validExchangeRate(rate)?String(Number((Number(base)/Number(rate)).toFixed(6))):'';}
 export function updateInvoiceLine(item,key,value,type,products,rate){
   const next={...item,[key]:value};
   if(key==='price'){delete next.catalogPriceAfn;return next;}
